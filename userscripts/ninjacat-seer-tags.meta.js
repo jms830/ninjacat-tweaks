@@ -8,7 +8,7 @@
 // @match        https://app.mymarketingreports.com/agency/data/agents*
 // @grant        none
 // @run-at       document-end
-// @homepage     https://github.com/jordan/ninjacat-tweaks
-// @updateURL    https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.meta.js
-// @downloadURL  https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
+// @homepage     https://github.com/jms830/ninjacat-tweaks
+// @updateURL    https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.meta.js
+// @downloadURL  https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
 // ==/UserScript==
