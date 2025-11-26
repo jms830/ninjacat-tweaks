@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat Export
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
+// @version      2.1.0
 // @description  Export NinjaCat agent chats to PDF (print) or Markdown, with expand/collapse controls
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents/*/chat/*
@@ -16,12 +16,12 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Chat Export] Script loaded v2.0.1');
+    console.log('[NinjaCat Chat Export] Script loaded v2.1.0');
 
     let exportButtonAdded = false;
+    let printHeaderAdded = false;
 
     // ---- Print Styles ----
-    // These CSS rules hide sidebars and expand chat area when printing
     const printStyles = `
         @media print {
             /* Hide left sidebar */
@@ -137,26 +137,38 @@
             #ninjacat-export-controls {
                 display: none !important;
             }
+
+            /* Show print header */
+            #ninjacat-print-header {
+                display: block !important;
+                padding: 20px !important;
+                margin-bottom: 20px !important;
+                border-bottom: 2px solid #E5E7EB !important;
+            }
+        }
+
+        /* Hide print header on screen */
+        #ninjacat-print-header {
+            display: none;
         }
     `;
 
     // ---- Initialize ----
     function init() {
-        // Inject print styles immediately
         injectPrintStyles();
+        setupKeyboardShortcuts();
 
         const checkInterval = setInterval(() => {
             const chatContainer = document.querySelector('#assistants-ui');
-            const messagesContainer = document.querySelector('.conversationMessagesContainer');
 
             if (chatContainer && !exportButtonAdded) {
                 addExportControls();
+                addPrintHeader();
                 exportButtonAdded = true;
                 clearInterval(checkInterval);
             }
         }, 1000);
 
-        // Stop checking after 30 seconds
         setTimeout(() => clearInterval(checkInterval), 30000);
     }
 
@@ -168,10 +180,60 @@
         console.log('[NinjaCat Chat Export] Print styles injected');
     }
 
+    // ---- Print Header (visible only when printing) ----
+    function addPrintHeader() {
+        if (printHeaderAdded) return;
+
+        const agentName = getAgentName();
+        const agentDescription = getAgentDescription();
+        const exportDate = new Date().toLocaleString();
+
+        const header = document.createElement('div');
+        header.id = 'ninjacat-print-header';
+        header.innerHTML = `
+            <div style="font-size: 24px; font-weight: 700; color: #111827; margin-bottom: 8px;">
+                ${escapeHTML(agentName)}
+            </div>
+            ${agentDescription ? `<div style="font-size: 14px; color: #6B7280; margin-bottom: 8px;">${escapeHTML(agentDescription)}</div>` : ''}
+            <div style="font-size: 12px; color: #9CA3AF;">
+                Exported: ${exportDate}
+            </div>
+        `;
+
+        // Insert at the top of the chat container
+        const chatContainer = document.querySelector('.conversationMessagesContainer');
+        if (chatContainer) {
+            chatContainer.insertBefore(header, chatContainer.firstChild);
+            printHeaderAdded = true;
+            console.log('[NinjaCat Chat Export] Print header added');
+        }
+    }
+
+    // Update print header before printing
+    function updatePrintHeader() {
+        const header = document.getElementById('ninjacat-print-header');
+        if (header) {
+            const exportDate = new Date().toLocaleString();
+            const dateEl = header.querySelector('div:last-child');
+            if (dateEl) {
+                dateEl.textContent = `Exported: ${exportDate}`;
+            }
+        }
+    }
+
+    // ---- Export Controls ----
     function addExportControls() {
-        // Find the header area with the back button
-        const backButton = document.querySelector('.flex.text-blue-100.items-center');
-        if (!backButton || !backButton.parentElement) {
+        // Try multiple selectors for more robust placement
+        let insertTarget = document.querySelector('.flex.text-blue-100.items-center.py-\\[15px\\]');
+        if (!insertTarget) {
+            insertTarget = document.querySelector('#assistants-ui .flex.text-blue-100');
+        }
+        if (!insertTarget) {
+            // Fallback: find the container and add at top
+            insertTarget = document.querySelector('#assistants-ui > div > div');
+        }
+
+        if (!insertTarget || !insertTarget.parentElement) {
             console.log('[NinjaCat Chat Export] Could not find header area');
             return;
         }
@@ -185,28 +247,69 @@
             gap: 8px;
             margin-left: 16px;
             padding: 8px 0;
+            flex-wrap: wrap;
         `;
 
-        // PDF Export button
-        const pdfBtn = createButton('📄 Print PDF', 'Print chat to PDF (hides sidebars)', '#3B82F6', exportToPDF);
+        // PDF Export button with hint
+        const pdfBtn = createButton(
+            '📄 Print PDF',
+            'Print to PDF (Ctrl+P, then "Save as PDF")\nTip: Use Expand All first to include all tasks',
+            '#3B82F6',
+            handlePDFExport
+        );
+        pdfBtn.id = 'ninjacat-pdf-btn';
 
         // Markdown Export button
-        const mdBtn = createButton('📝 Markdown', 'Export chat as Markdown text', '#10B981', exportToMarkdown);
+        const mdBtn = createButton(
+            '📝 Markdown',
+            'Export as Markdown file (Ctrl+Shift+M)',
+            '#10B981',
+            handleMarkdownExport
+        );
+        mdBtn.id = 'ninjacat-md-btn';
+
+        // Copy to Clipboard button
+        const copyBtn = createButton(
+            '📋 Copy',
+            'Copy conversation to clipboard as plain text',
+            '#8B5CF6',
+            handleCopyToClipboard
+        );
+        copyBtn.id = 'ninjacat-copy-btn';
 
         // Expand All button
-        const expandBtn = createButton('▼ Expand All', 'Expand all task sections', '#6B7280', () => toggleAllTasks(true));
+        const expandBtn = createButton(
+            '▼ Expand All',
+            'Expand all task sections before export',
+            '#6B7280',
+            () => {
+                toggleAllTasks(true);
+                showButtonFeedback(expandBtn, '✓ Expanded', '#10B981');
+            }
+        );
+        expandBtn.id = 'ninjacat-expand-btn';
 
         // Collapse All button
-        const collapseBtn = createButton('▲ Collapse All', 'Collapse all task sections', '#6B7280', () => toggleAllTasks(false));
+        const collapseBtn = createButton(
+            '▲ Collapse All',
+            'Collapse all task sections',
+            '#6B7280',
+            () => {
+                toggleAllTasks(false);
+                showButtonFeedback(collapseBtn, '✓ Collapsed', '#10B981');
+            }
+        );
+        collapseBtn.id = 'ninjacat-collapse-btn';
 
         controls.appendChild(pdfBtn);
         controls.appendChild(mdBtn);
+        controls.appendChild(copyBtn);
         controls.appendChild(createSeparator());
         controls.appendChild(expandBtn);
         controls.appendChild(collapseBtn);
 
-        // Insert after the back button
-        backButton.parentElement.insertBefore(controls, backButton.nextSibling);
+        // Insert after the target element
+        insertTarget.parentElement.insertBefore(controls, insertTarget.nextSibling);
         console.log('[NinjaCat Chat Export] Export controls added');
     }
 
@@ -214,6 +317,8 @@
         const btn = document.createElement('button');
         btn.innerHTML = text;
         btn.title = title;
+        btn.dataset.originalText = text;
+        btn.dataset.originalBg = bgColor;
         btn.style.cssText = `
             background: ${bgColor};
             color: white;
@@ -223,11 +328,16 @@
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
-            transition: opacity 0.2s;
+            transition: all 0.2s;
             white-space: nowrap;
+            min-width: 80px;
         `;
-        btn.onmouseenter = () => btn.style.opacity = '0.8';
-        btn.onmouseleave = () => btn.style.opacity = '1';
+        btn.onmouseenter = () => {
+            if (!btn.disabled) btn.style.opacity = '0.85';
+        };
+        btn.onmouseleave = () => {
+            if (!btn.disabled) btn.style.opacity = '1';
+        };
         btn.onclick = onClick;
         return btn;
     }
@@ -243,80 +353,221 @@
         return sep;
     }
 
+    // ---- Button Feedback ----
+    function showButtonFeedback(btn, text, color, duration = 1500) {
+        const originalText = btn.dataset.originalText;
+        const originalBg = btn.dataset.originalBg;
+
+        btn.innerHTML = text;
+        btn.style.background = color;
+        btn.disabled = true;
+        btn.style.cursor = 'default';
+
+        setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.style.background = originalBg;
+            btn.disabled = false;
+            btn.style.cursor = 'pointer';
+        }, duration);
+    }
+
+    function showButtonLoading(btn, text = 'Working...') {
+        btn.innerHTML = text;
+        btn.disabled = true;
+        btn.style.cursor = 'wait';
+        btn.style.opacity = '0.7';
+    }
+
+    function resetButton(btn) {
+        btn.innerHTML = btn.dataset.originalText;
+        btn.style.background = btn.dataset.originalBg;
+        btn.disabled = false;
+        btn.style.cursor = 'pointer';
+        btn.style.opacity = '1';
+    }
+
+    // ---- Keyboard Shortcuts ----
+    function setupKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+Shift+M for Markdown export
+            if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') {
+                e.preventDefault();
+                handleMarkdownExport();
+            }
+            // Ctrl+Shift+C for Copy to clipboard
+            if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') {
+                e.preventDefault();
+                handleCopyToClipboard();
+            }
+        });
+        console.log('[NinjaCat Chat Export] Keyboard shortcuts registered (Ctrl+Shift+M, Ctrl+Shift+C)');
+    }
+
     // ---- Toggle Tasks ----
     function toggleAllTasks(expand) {
-        // Find all task dropdown toggles
-        // They have the data-is-collapsed attribute on an SVG
         const toggles = document.querySelectorAll('[data-is-collapsed]');
-        
+        let toggledCount = 0;
+
         toggles.forEach(toggle => {
             const isCollapsed = toggle.getAttribute('data-is-collapsed') === 'true';
-            
-            // Click to toggle if state doesn't match desired state
+
             if ((expand && isCollapsed) || (!expand && !isCollapsed)) {
-                // Find the clickable parent (the flex container with cursor-pointer)
                 const clickTarget = toggle.closest('.cursor-pointer');
                 if (clickTarget) {
                     clickTarget.click();
+                    toggledCount++;
                 }
             }
         });
 
-        console.log(`[NinjaCat Chat Export] ${expand ? 'Expanded' : 'Collapsed'} all tasks`);
+        console.log(`[NinjaCat Chat Export] ${expand ? 'Expanded' : 'Collapsed'} ${toggledCount} task sections`);
+        return toggledCount;
     }
 
-    // ---- PDF Export (Print) ----
-    function exportToPDF() {
-        console.log('[NinjaCat Chat Export] Starting PDF export (print)...');
-        
-        // Simply trigger the browser's print dialog
-        // The injected CSS will handle hiding sidebars
-        window.print();
+    // ---- Handlers with Feedback ----
+    function handlePDFExport() {
+        const btn = document.getElementById('ninjacat-pdf-btn');
+        showButtonLoading(btn, '📄 Preparing...');
+
+        // Update the print header with current timestamp
+        updatePrintHeader();
+
+        // Small delay to let UI update, then print
+        setTimeout(() => {
+            resetButton(btn);
+            window.print();
+        }, 100);
+    }
+
+    function handleMarkdownExport() {
+        const btn = document.getElementById('ninjacat-md-btn');
+        showButtonLoading(btn, '📝 Exporting...');
+
+        setTimeout(() => {
+            try {
+                exportToMarkdown();
+                showButtonFeedback(btn, '✓ Downloaded', '#10B981');
+            } catch (e) {
+                console.error('[NinjaCat Chat Export] Markdown export error:', e);
+                showButtonFeedback(btn, '✗ Error', '#EF4444');
+            }
+        }, 100);
+    }
+
+    function handleCopyToClipboard() {
+        const btn = document.getElementById('ninjacat-copy-btn');
+        showButtonLoading(btn, '📋 Copying...');
+
+        setTimeout(() => {
+            try {
+                copyToClipboard();
+                showButtonFeedback(btn, '✓ Copied!', '#10B981');
+            } catch (e) {
+                console.error('[NinjaCat Chat Export] Copy error:', e);
+                showButtonFeedback(btn, '✗ Error', '#EF4444');
+            }
+        }, 100);
+    }
+
+    // ---- Helper Functions ----
+    function getAgentName() {
+        return document.querySelector('h2')?.textContent?.trim() || 'NinjaCat Chat';
+    }
+
+    function getAgentDescription() {
+        return document.querySelector('.text-sm.text-grey-70.text-center')?.textContent?.trim() || '';
+    }
+
+    function getFormattedDate() {
+        const now = new Date();
+        return now.toISOString().split('T')[0]; // YYYY-MM-DD
+    }
+
+    function escapeHTML(str) {
+        if (!str) return '';
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function sanitizeFilename(name) {
+        return name.replace(/[^a-z0-9]/gi, '-').replace(/-+/g, '-').substring(0, 50);
+    }
+
+    // ---- Copy to Clipboard ----
+    function copyToClipboard() {
+        const agentName = getAgentName();
+        const agentDescription = getAgentDescription();
+        const exportDate = new Date().toLocaleString();
+
+        let text = `${agentName}\n`;
+        if (agentDescription) {
+            text += `${agentDescription}\n`;
+        }
+        text += `Exported: ${exportDate}\n`;
+        text += `${'─'.repeat(50)}\n\n`;
+
+        const messagesContainer = document.querySelector('.conversationMessagesContainer');
+        if (!messagesContainer) {
+            throw new Error('No conversation found');
+        }
+
+        const allMessageElements = messagesContainer.querySelectorAll('[index]');
+
+        allMessageElements.forEach(el => {
+            const isUserMessage = el.classList.contains('self-end') || el.closest('.self-end');
+
+            if (isUserMessage) {
+                const msgText = el.querySelector('.whitespace-pre-wrap')?.textContent?.trim() || el.textContent?.trim();
+                if (msgText) {
+                    text += `YOU:\n${msgText}\n\n`;
+                }
+            } else {
+                const styledMessage = el.querySelector('.styled-chat-message') || el;
+                const msgText = styledMessage.textContent?.trim();
+                if (msgText) {
+                    text += `AGENT:\n${msgText}\n\n`;
+                }
+            }
+        });
+
+        navigator.clipboard.writeText(text);
+        console.log('[NinjaCat Chat Export] Copied to clipboard');
     }
 
     // ---- Markdown Export ----
     function exportToMarkdown() {
-        console.log('[NinjaCat Chat Export] Starting Markdown export...');
+        const agentName = getAgentName();
+        const agentDescription = getAgentDescription();
+        const exportDate = new Date().toLocaleString();
+        const fileDate = getFormattedDate();
 
-        // Get agent info
-        const agentName = document.querySelector('h2')?.textContent?.trim() || 'NinjaCat Chat';
-        const agentDescription = document.querySelector('.text-sm.text-grey-70.text-center')?.textContent?.trim() || '';
-
-        // Build markdown content
         let markdown = `# ${agentName}\n\n`;
         if (agentDescription) {
             markdown += `> ${agentDescription}\n\n`;
         }
-        markdown += `*Exported: ${new Date().toLocaleString()}*\n\n---\n\n`;
+        markdown += `*Exported: ${exportDate}*\n\n---\n\n`;
 
-        // Get all messages from the conversation container
         const messagesContainer = document.querySelector('.conversationMessagesContainer');
         if (!messagesContainer) {
             alert('No conversation found to export.');
             return;
         }
 
-        // Find user messages (they have self-end class and bg-grey-10)
-        const userMessages = messagesContainer.querySelectorAll('.self-end .whitespace-pre-wrap');
-        
-        // Find assistant messages (styled-chat-message that are NOT in self-end)
-        const assistantMessages = messagesContainer.querySelectorAll('.styled-chat-message');
-
-        // Get all message elements in order by walking the DOM
         const allMessageElements = messagesContainer.querySelectorAll('[index]');
-        
+
         allMessageElements.forEach(el => {
-            const index = el.getAttribute('index');
             const isUserMessage = el.classList.contains('self-end') || el.closest('.self-end');
-            
+
             if (isUserMessage) {
-                // User message
                 const text = el.querySelector('.whitespace-pre-wrap')?.textContent?.trim() || el.textContent?.trim();
                 if (text) {
                     markdown += `## You\n\n${text}\n\n`;
                 }
             } else {
-                // Assistant message
                 const styledMessage = el.querySelector('.styled-chat-message') || el;
                 const messageContent = extractMarkdownContent(styledMessage);
                 if (messageContent) {
@@ -325,7 +576,7 @@
             }
         });
 
-        // Also capture any images
+        // Capture images
         const images = messagesContainer.querySelectorAll('img[src*="ai-service"]');
         if (images.length > 0) {
             markdown += `\n---\n\n### Images in conversation\n\n`;
@@ -334,22 +585,20 @@
             });
         }
 
-        // Download the markdown file
-        downloadFile(`${sanitizeFilename(agentName)}-chat.md`, markdown, 'text/markdown');
+        // Filename includes date
+        const filename = `${sanitizeFilename(agentName)}-${fileDate}-chat.md`;
+        downloadFile(filename, markdown, 'text/markdown');
     }
 
     function extractMarkdownContent(element) {
         if (!element) return '';
-        
-        let content = '';
-        
-        // Clone the element to manipulate without affecting the page
+
         const clone = element.cloneNode(true);
-        
+
         // Convert headers
         clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {
             const level = parseInt(h.tagName[1]);
-            const prefix = '#'.repeat(level + 1); // Add 1 since we use ## for roles
+            const prefix = '#'.repeat(level + 1);
             h.textContent = `${prefix} ${h.textContent}\n`;
         });
 
@@ -385,16 +634,10 @@
             a.textContent = `[${a.textContent}](${a.href})`;
         });
 
-        content = clone.textContent?.trim() || '';
-        
-        // Clean up extra whitespace
+        let content = clone.textContent?.trim() || '';
         content = content.replace(/\n{3,}/g, '\n\n');
-        
-        return content;
-    }
 
-    function sanitizeFilename(name) {
-        return name.replace(/[^a-z0-9]/gi, '-').replace(/-+/g, '-').substring(0, 50);
+        return content;
     }
 
     function downloadFile(filename, content, mimeType) {
