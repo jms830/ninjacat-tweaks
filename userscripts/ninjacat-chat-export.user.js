@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat Export
 // @namespace    http://tampermonkey.net/
-// @version      2.3.0
+// @version      2.3.1
 // @description  Export NinjaCat agent chats to PDF (print) or Markdown, with expand/collapse controls
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents/*/chat/*
@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Chat Export] Script loaded v2.3.0');
+    console.log('[NinjaCat Chat Export] Script loaded v2.3.1');
 
     let exportButtonAdded = false;
     let printEnhancementsAdded = false;
@@ -512,23 +512,49 @@
 
     // ---- Toggle Tasks ----
     function toggleAllTasks(expand) {
-        const toggles = document.querySelectorAll('[data-is-collapsed]');
-        let toggledCount = 0;
+        let totalToggled = 0;
 
-        toggles.forEach(toggle => {
-            const isCollapsed = toggle.getAttribute('data-is-collapsed') === 'true';
+        function doToggle() {
+            const toggles = document.querySelectorAll('[data-is-collapsed]');
+            let toggledCount = 0;
 
-            if ((expand && isCollapsed) || (!expand && !isCollapsed)) {
-                const clickTarget = toggle.closest('.cursor-pointer');
-                if (clickTarget) {
-                    clickTarget.click();
-                    toggledCount++;
+            toggles.forEach(toggle => {
+                const isCollapsed = toggle.getAttribute('data-is-collapsed') === 'true';
+
+                if ((expand && isCollapsed) || (!expand && !isCollapsed)) {
+                    const clickTarget = toggle.closest('.cursor-pointer');
+                    if (clickTarget) {
+                        clickTarget.click();
+                        toggledCount++;
+                    }
                 }
-            }
-        });
+            });
 
-        console.log(`[NinjaCat Chat Export] ${expand ? 'Expanded' : 'Collapsed'} ${toggledCount} task sections`);
-        return toggledCount;
+            return toggledCount;
+        }
+
+        // First pass - expand top-level items
+        totalToggled += doToggle();
+
+        // Second pass after delay - catch nested items that appeared after first expansion
+        setTimeout(() => {
+            const nestedCount = doToggle();
+            totalToggled += nestedCount;
+            if (nestedCount > 0) {
+                console.log(`[NinjaCat Chat Export] Expanded ${nestedCount} nested task sections`);
+                
+                // Third pass for deeply nested items
+                setTimeout(() => {
+                    const deepNestedCount = doToggle();
+                    if (deepNestedCount > 0) {
+                        console.log(`[NinjaCat Chat Export] Expanded ${deepNestedCount} deeply nested sections`);
+                    }
+                }, 150);
+            }
+        }, 150);
+
+        console.log(`[NinjaCat Chat Export] ${expand ? 'Expanded' : 'Collapsed'} ${totalToggled} task sections (checking for nested...)`);
+        return totalToggled;
     }
 
     // ---- Handlers ----
