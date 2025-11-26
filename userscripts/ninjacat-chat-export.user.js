@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat Export
 // @namespace    http://tampermonkey.net/
-// @version      2.2.0
+// @version      2.3.0
 // @description  Export NinjaCat agent chats to PDF (print) or Markdown, with expand/collapse controls
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents/*/chat/*
@@ -16,14 +16,19 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Chat Export] Script loaded v2.2.0');
+    console.log('[NinjaCat Chat Export] Script loaded v2.3.0');
 
     let exportButtonAdded = false;
     let printEnhancementsAdded = false;
 
     // ---- Print Styles ----
+    // Goal: Preserve original layout as much as possible, only hide sidebars and add header
     const printStyles = `
         @media print {
+            /* ============================================
+               HIDE SIDEBARS AND NON-CONTENT ELEMENTS
+               ============================================ */
+            
             /* Hide left sidebar */
             .njc-main-menu {
                 display: none !important;
@@ -39,72 +44,14 @@
                 display: none !important;
             }
 
-            /* Hide the message input area */
+            /* Hide the message input area at bottom */
             .flex.flex-col.relative.max-w-\\[840px\\] {
                 display: none !important;
             }
 
-            /* Expand chat area to full width */
-            .flex.h-screen.ml-auto.w-\\[95\\%\\] {
-                width: 100% !important;
-                margin-left: 0 !important;
-                height: auto !important;
-                max-height: none !important;
-            }
-
-            .max-h-screen.flex.flex-col.flex-grow {
-                padding: 0 !important;
-                max-width: 100% !important;
-                max-height: none !important;
-                height: auto !important;
-            }
-
-            /* CRITICAL: Remove scroll constraints to show full chat */
-            .overflow-y-auto,
-            .overflow-auto,
-            .conversationMessagesContainer {
-                overflow: visible !important;
-                max-height: none !important;
-                height: auto !important;
-            }
-
-            .conversationMessagesContainer {
-                max-width: 100% !important;
-                padding: 20px !important;
-            }
-
-            .max-w-\\[840px\\] {
-                max-width: 100% !important;
-            }
-
-            /* Remove h-screen constraints */
-            .h-screen {
-                height: auto !important;
-                max-height: none !important;
-            }
-
-            /* Ensure flex containers don't constrain height */
-            .flex-grow {
-                flex-grow: 0 !important;
-            }
-
-            #assistants-ui,
-            #assistants-ui > div,
-            #assistants-ui .flex {
-                height: auto !important;
-                max-height: none !important;
-                overflow: visible !important;
-            }
-
-            /* Ensure images print properly */
-            img {
-                max-width: 100% !important;
-                page-break-inside: avoid;
-            }
-
-            /* Keep message blocks together */
-            .styled-chat-message {
-                page-break-inside: avoid;
+            /* Hide our export controls */
+            #ninjacat-export-controls {
+                display: none !important;
             }
 
             /* Hide hover buttons (edit, copy) */
@@ -117,7 +64,59 @@
                 display: none !important;
             }
 
-            /* Remove body padding */
+            /* ============================================
+               LAYOUT: Expand chat to full width
+               ============================================ */
+            
+            .flex.h-screen.ml-auto.w-\\[95\\%\\] {
+                width: 100% !important;
+                margin-left: 0 !important;
+                height: auto !important;
+                max-height: none !important;
+            }
+
+            .max-h-screen.flex.flex-col.flex-grow {
+                padding: 0 20px !important;
+                max-width: 100% !important;
+                max-height: none !important;
+                height: auto !important;
+            }
+
+            /* Remove scroll constraints to show full chat */
+            .overflow-y-auto,
+            .overflow-auto,
+            .conversationMessagesContainer {
+                overflow: visible !important;
+                max-height: none !important;
+                height: auto !important;
+            }
+
+            .conversationMessagesContainer {
+                max-width: 100% !important;
+                padding: 0 !important;
+            }
+
+            .max-w-\\[840px\\] {
+                max-width: 100% !important;
+            }
+
+            .h-screen {
+                height: auto !important;
+                max-height: none !important;
+            }
+
+            .flex-grow {
+                flex-grow: 0 !important;
+            }
+
+            #assistants-ui,
+            #assistants-ui > div,
+            #assistants-ui .flex {
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+
             .njc-body {
                 padding: 0 !important;
                 margin: 0 !important;
@@ -127,90 +126,70 @@
                 padding: 0 !important;
             }
 
-            /* Page settings */
+            /* ============================================
+               PAGE SETTINGS
+               ============================================ */
             @page {
                 margin: 0.5in;
                 size: auto;
             }
 
-            /* Hide our export controls when printing */
-            #ninjacat-export-controls {
-                display: none !important;
+            /* ============================================
+               IMAGES
+               ============================================ */
+            img {
+                max-width: 100% !important;
+                page-break-inside: avoid;
+            }
+
+            .styled-chat-message {
+                page-break-inside: avoid;
             }
 
             /* ============================================
-               PRINT HEADER - Visible only when printing
+               PRINT HEADER
                ============================================ */
             #ninjacat-print-header {
                 display: block !important;
-                padding: 24px 20px !important;
-                margin: 0 0 24px 0 !important;
-                border-bottom: 3px solid #3B82F6 !important;
-                background: #F8FAFC !important;
+                padding: 20px 0 !important;
+                margin: 0 0 20px 0 !important;
+                border-bottom: 2px solid #3B82F6 !important;
             }
 
             /* ============================================
-               USER MESSAGE STYLING FOR PRINT
+               USER MESSAGE LABELS (print only)
                ============================================ */
             .ninjacat-user-label {
                 display: block !important;
+                margin-top: 24px !important;
             }
 
-            .self-end,
-            [class*="self-end"] {
-                align-self: flex-start !important;
-                max-width: 100% !important;
-            }
-
-            .self-end .whitespace-pre-wrap,
-            .bg-grey-10 {
-                background: #DBEAFE !important;
-                border-left: 4px solid #3B82F6 !important;
-                padding: 12px 16px !important;
-                border-radius: 8px !important;
-                margin: 0 !important;
-                max-width: 100% !important;
-            }
-
-            /* ============================================
-               MESSAGE DIVIDERS FOR PRINT
-               ============================================ */
-            .ninjacat-message-divider {
-                display: block !important;
-            }
-
-            /* ============================================
-               AGENT LABEL STYLING FOR PRINT
-               ============================================ */
             .ninjacat-agent-label {
                 display: block !important;
+                margin-top: 24px !important;
             }
 
             /* ============================================
-               HIDE TASK DROPDOWN ARROWS IN PRINT
+               LINKS - Make them blue
                ============================================ */
+            a, a:visited {
+                color: #2563EB !important;
+                text-decoration: underline !important;
+            }
+
+            /* ============================================
+               TASK COMPLETED SECTION - Keep original style
+               but ensure it's not inside user message box
+               ============================================ */
+            
+            /* Hide the collapse arrow icon */
             [data-is-collapsed] {
                 display: none !important;
             }
 
-            /* Keep the task count text visible */
-            .cursor-pointer .text-blue-100.font-semibold {
-                display: inline !important;
-            }
-
-            /* ============================================
-               TIGHTEN SPACING
-               ============================================ */
-            .mt-6 {
-                margin-top: 16px !important;
-            }
-
-            .mb-\\[18px\\] {
-                margin-bottom: 12px !important;
-            }
-
-            .gap-3 {
-                gap: 8px !important;
+            /* Ensure tasks completed stays visible and separate */
+            .cursor-pointer {
+                margin-top: 8px !important;
             }
         }
 
@@ -222,8 +201,7 @@
         }
 
         .ninjacat-user-label,
-        .ninjacat-agent-label,
-        .ninjacat-message-divider {
+        .ninjacat-agent-label {
             display: none;
         }
     `;
@@ -254,10 +232,9 @@
         console.log('[NinjaCat Chat Export] Print styles injected');
     }
 
-    // ---- Add Print Enhancements (labels, dividers, header) ----
+    // ---- Add Print Enhancements (labels, header) ----
     function addPrintEnhancements() {
         if (printEnhancementsAdded) {
-            // Just update the timestamp
             updatePrintHeader();
             return;
         }
@@ -268,10 +245,7 @@
             return;
         }
 
-        // Add print header at the very top
         addPrintHeader(messagesContainer);
-
-        // Add labels and dividers to messages
         addMessageLabels(messagesContainer);
 
         printEnhancementsAdded = true;
@@ -279,7 +253,6 @@
     }
 
     function addPrintHeader(container) {
-        // Remove existing header if any
         const existing = document.getElementById('ninjacat-print-header');
         if (existing) existing.remove();
 
@@ -290,16 +263,15 @@
         const header = document.createElement('div');
         header.id = 'ninjacat-print-header';
         header.innerHTML = `
-            <div style="font-size: 28px; font-weight: 700; color: #1E3A8A; margin-bottom: 8px; line-height: 1.2;">
+            <div style="font-size: 24px; font-weight: 700; color: #111827; margin-bottom: 6px;">
                 ${escapeHTML(agentName)}
             </div>
-            ${agentDescription ? `<div style="font-size: 14px; color: #64748B; margin-bottom: 12px;">${escapeHTML(agentDescription)}</div>` : ''}
-            <div style="font-size: 12px; color: #94A3B8; font-weight: 500;">
-                📅 Exported: ${exportDate}
+            ${agentDescription ? `<div style="font-size: 13px; color: #6B7280; margin-bottom: 8px;">${escapeHTML(agentDescription)}</div>` : ''}
+            <div style="font-size: 11px; color: #9CA3AF;">
+                Exported: ${exportDate}
             </div>
         `;
 
-        // Insert at the very beginning of the container
         container.insertBefore(header, container.firstChild);
     }
 
@@ -309,75 +281,61 @@
             const exportDate = new Date().toLocaleString();
             const dateEl = header.querySelector('div:last-child');
             if (dateEl) {
-                dateEl.innerHTML = `📅 Exported: ${exportDate}`;
+                dateEl.textContent = `Exported: ${exportDate}`;
             }
         }
     }
 
     function addMessageLabels(container) {
         const allMessageElements = container.querySelectorAll('[index]');
-        let lastWasUser = null;
 
-        allMessageElements.forEach((el, idx) => {
-            // Skip if already has label
+        allMessageElements.forEach((el) => {
             if (el.querySelector('.ninjacat-user-label, .ninjacat-agent-label')) return;
 
             const isUserMessage = el.classList.contains('self-end') || el.closest('.self-end');
 
-            // Add divider between different message types (but not before first message)
-            if (idx > 0 && lastWasUser !== null && lastWasUser !== isUserMessage) {
-                const divider = document.createElement('div');
-                divider.className = 'ninjacat-message-divider';
-                divider.style.cssText = `
-                    height: 1px;
-                    background: #E2E8F0;
-                    margin: 20px 0;
-                    display: none;
-                `;
-                el.parentElement.insertBefore(divider, el);
-            }
-
             if (isUserMessage) {
-                // Add "You" label before user messages
-                const label = document.createElement('div');
-                label.className = 'ninjacat-user-label';
-                label.style.cssText = `
-                    font-size: 12px;
-                    font-weight: 700;
-                    color: #1E40AF;
-                    margin-bottom: 6px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                    display: none;
-                `;
-                label.textContent = '💬 You';
-
-                // Find the message content wrapper
-                const messageWrapper = el.querySelector('.whitespace-pre-wrap');
-                if (messageWrapper && messageWrapper.parentElement) {
-                    messageWrapper.parentElement.insertBefore(label, messageWrapper);
-                }
-            } else {
-                // Add "Agent" label before agent messages
-                const styledMessage = el.querySelector('.styled-chat-message');
-                if (styledMessage && !styledMessage.previousElementSibling?.classList?.contains('ninjacat-agent-label')) {
+                // Add label BEFORE the message element (not inside)
+                const existingLabel = el.parentElement?.querySelector('.ninjacat-user-label');
+                if (!existingLabel) {
                     const label = document.createElement('div');
-                    label.className = 'ninjacat-agent-label';
+                    label.className = 'ninjacat-user-label';
                     label.style.cssText = `
-                        font-size: 12px;
+                        font-size: 11px;
                         font-weight: 700;
-                        color: #047857;
-                        margin-bottom: 6px;
+                        color: #3B82F6;
+                        margin-bottom: 4px;
                         text-transform: uppercase;
                         letter-spacing: 0.5px;
                         display: none;
                     `;
-                    label.textContent = '🤖 Agent';
-                    styledMessage.parentElement.insertBefore(label, styledMessage);
+                    label.textContent = '● YOU';
+                    el.parentElement?.insertBefore(label, el);
+                }
+            } else {
+                // Add label before agent message blocks
+                const styledMessage = el.querySelector('.styled-chat-message');
+                if (styledMessage) {
+                    const parent = styledMessage.closest('[index]') || styledMessage.parentElement;
+                    const existingLabel = parent?.parentElement?.querySelector(`.ninjacat-agent-label[data-for-index="${el.getAttribute('index')}"]`);
+                    if (!existingLabel && parent?.parentElement) {
+                        const label = document.createElement('div');
+                        label.className = 'ninjacat-agent-label';
+                        label.dataset.forIndex = el.getAttribute('index');
+                        label.style.cssText = `
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: #059669;
+                            margin-bottom: 4px;
+                            text-transform: uppercase;
+                            letter-spacing: 0.5px;
+                            display: none;
+                        `;
+                        label.textContent = '● AGENT';
+                        parent.parentElement.insertBefore(label, parent);
+                    }
                 }
             }
-
-            lastWasUser = isUserMessage;
         });
     }
 
@@ -578,10 +536,8 @@
         const btn = document.getElementById('ninjacat-pdf-btn');
         showButtonLoading(btn, '📄 Preparing...');
 
-        // Add print enhancements (header, labels, dividers)
         addPrintEnhancements();
 
-        // Small delay to let DOM update, then print
         setTimeout(() => {
             resetButton(btn);
             window.print();
@@ -714,21 +670,20 @@
             if (isUserMessage) {
                 const text = el.querySelector('.whitespace-pre-wrap')?.textContent?.trim() || el.textContent?.trim();
                 if (text) {
-                    markdown += `## 💬 You\n\n${text}\n\n---\n\n`;
+                    markdown += `## You\n\n${text}\n\n---\n\n`;
                 }
             } else {
                 const styledMessage = el.querySelector('.styled-chat-message') || el;
                 const messageContent = extractMarkdownContent(styledMessage);
                 if (messageContent) {
-                    markdown += `## 🤖 Agent\n\n${messageContent}\n\n---\n\n`;
+                    markdown += `## Agent\n\n${messageContent}\n\n---\n\n`;
                 }
             }
         });
 
-        // Capture images
         const images = messagesContainer.querySelectorAll('img[src*="ai-service"]');
         if (images.length > 0) {
-            markdown += `\n### 🖼️ Images in conversation\n\n`;
+            markdown += `\n### Images in conversation\n\n`;
             images.forEach((img, i) => {
                 markdown += `![Image ${i + 1}](${img.src})\n\n`;
             });
@@ -743,7 +698,6 @@
 
         const clone = element.cloneNode(true);
 
-        // Remove any injected labels
         clone.querySelectorAll('.ninjacat-agent-label, .ninjacat-user-label').forEach(el => el.remove());
 
         clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {
