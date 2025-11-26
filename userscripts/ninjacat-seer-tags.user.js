@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
-// @description  Seer division tags, filtering, and auto-expand for NinjaCat agents with customizable categories, data sources, manual tagging, and import/export
+// @version      1.5.0
+// @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
 // @match        https://app.mymarketingreports.com/agency/data/agents*
@@ -16,27 +16,30 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.4.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v1.5.0');
 
-    // ---- Configuration Management ----
+    // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
     const AGENT_TAGS_KEY = 'ninjacat-seer-agent-tags';
+    const FILTER_STATE_KEY = 'ninjacat-seer-filter-state';
+    const DATA_SOURCES_KEY = 'ninjacat-seer-data-sources';
     
+    // ---- Default Configuration ----
     const DEFAULT_CONFIG = {
         categories: {
-            ana:     { name: 'ANA', color: '#10B981', icon: '📈', enabled: true },
-            pdm:     { name: 'PDM', color: '#3B82F6', icon: '💸', enabled: true },
-            seo:     { name: 'SEO', color: '#F59E0B', icon: '🔍', enabled: true },
-            ce:      { name: 'CE', color: '#8B5CF6', icon: '🤝', enabled: true },
-            ops:     { name: 'OPS', color: '#6B7280', icon: '🛠️', enabled: true },
-            wip:     { name: 'WIP', color: '#EF4444', icon: '🚧', enabled: true },
-            dnu:     { name: 'DNU', color: '#DC2626', icon: '⛔', enabled: true },
-            prod:    { name: 'PROD', color: '#059669', icon: '✅', enabled: true },
-            client:  { name: 'CLIENT', color: '#7C3AED', icon: '👤', enabled: true },
-            utility: { name: 'UTILITY', color: '#64748B', icon: '🔧', enabled: true }
+            ana:     { name: 'ANA', color: '#10B981', icon: '📈', enabled: true, order: 0 },
+            pdm:     { name: 'PDM', color: '#3B82F6', icon: '💸', enabled: true, order: 1 },
+            seo:     { name: 'SEO', color: '#F59E0B', icon: '🔍', enabled: true, order: 2 },
+            ce:      { name: 'CE', color: '#8B5CF6', icon: '🤝', enabled: true, order: 3 },
+            ops:     { name: 'OPS', color: '#6B7280', icon: '🛠️', enabled: true, order: 4 },
+            wip:     { name: 'WIP', color: '#EF4444', icon: '🚧', enabled: true, order: 5 },
+            dnu:     { name: 'DNU', color: '#DC2626', icon: '⛔', enabled: true, order: 6 },
+            prod:    { name: 'PROD', color: '#059669', icon: '✅', enabled: true, order: 7 },
+            client:  { name: 'CLIENT', color: '#7C3AED', icon: '👤', enabled: true, order: 8 },
+            utility: { name: 'UTILITY', color: '#64748B', icon: '🔧', enabled: true, order: 9 }
         },
         patterns: {
-            ana:     ['[ana]', 'analytics', 'ga4', 'event drop', 'anomalie', 'drop-off', 'gsc'],
+            ana:     ['[ana]', 'analytics', 'ga4', 'event drop', 'anomalie', 'drop-off'],
             pdm:     ['[pdm]', 'paid', 'ppc', 'ad copy', 'google ads', 'meta ads', 'campaign', 'spend', 'budget'],
             seo:     ['[seo]', 'keyword', 'organic', 'serp', 'search intent', 'landing page', 'content', 'backlink', 'rankings'],
             ce:      ['[ce', 'client', 'call prep', 'qbr', 'engagement', 'horizon'],
@@ -49,60 +52,37 @@
         }
     };
 
-    const DATA_SOURCES = {
-        ga: {
-            name: 'Google Analytics',
-            color: '#F97316',
-            icon: '📊',
-            patterns: ['google analytics', 'ga4', 'ga 4', 'ga ', 'analytics']
-        },
-        gsc: {
-            name: 'Google Search Console',
-            color: '#0EA5E9',
-            icon: '🔎',
-            patterns: ['search console', 'gsc']
-        },
-        sheets: {
-            name: 'Google Sheets',
-            color: '#22C55E',
-            icon: '📄',
-            patterns: ['google sheets', 'gsheets', 'sheet', 'spreadsheet']
-        },
-        meta: {
-            name: 'Meta Ads',
-            color: '#2563EB',
-            icon: '📘',
-            patterns: ['meta ads', 'facebook ads', 'meta']
-        },
-        googleAds: {
-            name: 'Google Ads',
-            color: '#FACC15',
-            icon: '💰',
-            patterns: ['google ads', 'googlead', 'adwords']
-        }
+    const DEFAULT_DATA_SOURCES = {
+        ga: { name: 'Google Analytics', color: '#F97316', icon: '📊', patterns: ['google analytics', 'ga4', 'ga 4', 'analytics'], enabled: true, order: 0 },
+        gsc: { name: 'Google Search Console', color: '#0EA5E9', icon: '🔎', patterns: ['search console', 'gsc'], enabled: true, order: 1 },
+        sheets: { name: 'Google Sheets', color: '#22C55E', icon: '📄', patterns: ['google sheets', 'gsheets', 'sheet', 'spreadsheet'], enabled: true, order: 2 },
+        meta: { name: 'Meta Ads', color: '#2563EB', icon: '📘', patterns: ['meta ads', 'facebook ads', 'meta'], enabled: true, order: 3 },
+        googleAds: { name: 'Google Ads', color: '#FACC15', icon: '💰', patterns: ['google ads', 'googlead', 'adwords'], enabled: true, order: 4 }
     };
 
-    const DEFAULT_ICONS = ['📈', '💸', '🔍', '🤝', '🛠️', '🚧', '⛔', '✅', '👤', '🔧', '📊', '🎯', '💡', '🔔', '📁', '🏷️', '⚡', '🌟', '📋', '🎨'];
+    const DEFAULT_ICONS = ['📈', '💸', '🔍', '🤝', '🛠️', '🚧', '⛔', '✅', '👤', '🔧', '📊', '🎯', '💡', '🔔', '📁', '🏷️', '⚡', '🌟', '📋', '🎨', '🔎', '📄', '📘', '💰', '🚀', '💎', '🔥', '❄️', '🌈', '🎪'];
 
+    // ---- Storage Functions ----
     function loadConfig() {
         try {
             const saved = localStorage.getItem(CONFIG_KEY);
             if (saved) {
                 const parsed = JSON.parse(saved);
-                console.log('[NinjaCat Seer Tags] Loaded saved configuration');
+                // Ensure order property exists
+                Object.keys(parsed.categories || {}).forEach((k, i) => {
+                    if (parsed.categories[k].order === undefined) parsed.categories[k].order = i;
+                });
                 return parsed;
             }
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error loading config:', error);
         }
-        console.log('[NinjaCat Seer Tags] Using default configuration');
         return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
     }
 
     function saveConfig(cfg) {
         try {
             localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
-            console.log('[NinjaCat Seer Tags] Configuration saved');
             return true;
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error saving config:', error);
@@ -110,12 +90,37 @@
         }
     }
 
+    function loadDataSources() {
+        try {
+            const saved = localStorage.getItem(DATA_SOURCES_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                Object.keys(parsed).forEach((k, i) => {
+                    if (parsed[k].order === undefined) parsed[k].order = i;
+                    if (parsed[k].enabled === undefined) parsed[k].enabled = true;
+                });
+                return parsed;
+            }
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error loading data sources:', error);
+        }
+        return JSON.parse(JSON.stringify(DEFAULT_DATA_SOURCES));
+    }
+
+    function saveDataSources(sources) {
+        try {
+            localStorage.setItem(DATA_SOURCES_KEY, JSON.stringify(sources));
+            return true;
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error saving data sources:', error);
+            return false;
+        }
+    }
+
     function loadAgentTags() {
         try {
             const saved = localStorage.getItem(AGENT_TAGS_KEY);
-            if (saved) {
-                return JSON.parse(saved);
-            }
+            if (saved) return JSON.parse(saved);
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error loading agent tags:', error);
         }
@@ -125,7 +130,6 @@
     function saveAgentTags(tags) {
         try {
             localStorage.setItem(AGENT_TAGS_KEY, JSON.stringify(tags));
-            console.log('[NinjaCat Seer Tags] Agent tags saved');
             return true;
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error saving agent tags:', error);
@@ -133,16 +137,53 @@
         }
     }
 
-    let config = loadConfig();
-    let agentTags = loadAgentTags(); // { "Agent Name": ["TAG1", "TAG2"], ... }
+    function loadFilterState() {
+        try {
+            const saved = localStorage.getItem(FILTER_STATE_KEY);
+            if (saved) return JSON.parse(saved);
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error loading filter state:', error);
+        }
+        return { categories: [], sources: [], showUntagged: false };
+    }
 
-    // State
+    function saveFilterState() {
+        try {
+            localStorage.setItem(FILTER_STATE_KEY, JSON.stringify({
+                categories: activeCategoryFilters,
+                sources: activeSourceFilters,
+                showUntagged: showUntaggedOnly
+            }));
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error saving filter state:', error);
+        }
+    }
+
+    // ---- State ----
+    let config = loadConfig();
+    let dataSources = loadDataSources();
+    let agentTags = loadAgentTags();
+    const savedFilterState = loadFilterState();
+    
     let debounceTimer = null;
     let activeRowSelector = null;
-    let activeCategoryFilters = [];
-    let activeSourceFilters = [];
+    let activeCategoryFilters = savedFilterState.categories || [];
+    let activeSourceFilters = savedFilterState.sources || [];
+    let showUntaggedOnly = savedFilterState.showUntagged || false;
+    let currentFilterStats = { visible: 0, total: 0 };
 
-    // ---- Helper: Locate table rows ----
+    // ---- Global Keyboard Handler ----
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const modals = ['seer-settings-modal', 'seer-agent-tag-modal', 'seer-share-modal', 'seer-suggest-pattern-modal'];
+            modals.forEach(id => {
+                const modal = document.getElementById(id);
+                if (modal) modal.remove();
+            });
+        }
+    });
+
+    // ---- Helper Functions ----
     function getAgentRows(log = true) {
         const selectors = [
             '[data-automation-id^="data-table-row"]',
@@ -164,16 +205,10 @@
                 return Array.from(nodes);
             }
         }
-
-        if (log) {
-            console.warn('[NinjaCat Seer Tags] No agent rows found. Selectors tried:', selectors);
-        }
         return [];
     }
 
-    // ---- Helper: Extract agent name from row ----
     function getAgentName(card) {
-        // Try various selectors to find agent name
         const nameSelectors = [
             '[data-automation-id*="agent-name"]',
             '[data-testid*="agent-name"]',
@@ -187,18 +222,24 @@
             const el = card.querySelector(sel);
             if (el) {
                 const text = el.textContent?.trim();
-                if (text && text.length > 0 && text.length < 200) {
-                    return text;
-                }
+                if (text && text.length > 0 && text.length < 200) return text;
             }
         }
-        
-        // Fallback: get first meaningful text
-        const firstText = card.innerText?.split('\n')[0]?.trim();
-        return firstText || null;
+        return card.innerText?.split('\n')[0]?.trim() || null;
     }
 
-    // ---- Helper: Extract data source labels ----
+    function getSortedCategories() {
+        return Object.entries(config.categories)
+            .filter(([k, v]) => v.enabled)
+            .sort((a, b) => (a[1].order || 0) - (b[1].order || 0));
+    }
+
+    function getSortedDataSources() {
+        return Object.entries(dataSources)
+            .filter(([k, v]) => v.enabled)
+            .sort((a, b) => (a[1].order || 0) - (b[1].order || 0));
+    }
+
     function detectDataSources(card) {
         const found = new Set();
         const candidates = card.querySelectorAll('img, svg, [data-tooltip-content], [aria-label], [title], span');
@@ -213,8 +254,8 @@
         });
 
         const textBlob = texts.join(' ').toLowerCase();
-        Object.entries(DATA_SOURCES).forEach(([key, source]) => {
-            if (source.patterns.some(pattern => textBlob.includes(pattern))) {
+        Object.entries(dataSources).forEach(([key, source]) => {
+            if (source.enabled && source.patterns.some(pattern => textBlob.includes(pattern.toLowerCase()))) {
                 found.add(source.name);
             }
         });
@@ -234,7 +275,7 @@
             
             if (words.some(word => lowerText.includes(word.toLowerCase()))) {
                 if (!addedNames.has(category.name)) {
-                    tags.push({ ...category, isManual: false });
+                    tags.push({ ...category, key, isManual: false });
                     addedNames.add(category.name);
                 }
             }
@@ -244,10 +285,9 @@
         if (agentName && agentTags[agentName]) {
             agentTags[agentName].forEach(tagName => {
                 if (!addedNames.has(tagName)) {
-                    // Find the category config for this tag
                     const catEntry = Object.entries(config.categories).find(([k, c]) => c.name === tagName);
                     if (catEntry) {
-                        tags.push({ ...catEntry[1], isManual: true });
+                        tags.push({ ...catEntry[1], key: catEntry[0], isManual: true });
                         addedNames.add(tagName);
                     }
                 }
@@ -255,6 +295,10 @@
         }
         
         return tags;
+    }
+
+    function getAgentsUsingTag(tagName) {
+        return Object.entries(agentTags).filter(([agent, tags]) => tags.includes(tagName)).map(([agent]) => agent);
     }
 
     // ---- Auto-expand pagination ----
@@ -270,25 +314,20 @@
         }
     }
 
-    // ---- Tagging logic ----
+    // ---- Tagging Logic ----
     function tagAgentCards() {
         try {
             const agentCards = getAgentRows();
-            if (agentCards.length === 0) {
-                console.log('[NinjaCat Seer Tags] No agent cards found');
-                return;
-            }
+            if (agentCards.length === 0) return;
 
             console.log(`[NinjaCat Seer Tags] Tagging ${agentCards.length} agent cards`);
             
             agentCards.forEach((card, index) => {
                 try {
-                    // Remove existing tags to refresh
-                    const existingTags = card.querySelector('.seer-tags');
-                    if (existingTags) existingTags.remove();
-                    
-                    const existingTagBtn = card.querySelector('.seer-tag-agent-btn');
-                    if (existingTagBtn) existingTagBtn.remove();
+                    // Remove existing elements
+                    card.querySelector('.seer-tags')?.remove();
+                    card.querySelector('.seer-tag-agent-btn')?.remove();
+                    card.querySelector('.seer-suggest-btn')?.remove();
 
                     const txt = card.innerText || '';
                     const agentName = getAgentName(card);
@@ -297,50 +336,60 @@
 
                     card.setAttribute('data-seer-tags', tags.map(t => t.name).join(','));
                     card.setAttribute('data-seer-datasources', sources.join(','));
-                    if (agentName) {
-                        card.setAttribute('data-seer-agent-name', agentName);
-                    }
+                    card.setAttribute('data-seer-has-tags', tags.length > 0 ? 'true' : 'false');
+                    if (agentName) card.setAttribute('data-seer-agent-name', agentName);
 
                     if (!card.dataset.originalDisplay) {
                         const computed = getComputedStyle(card).display || '';
                         card.dataset.originalDisplay = computed === 'none' ? '' : computed;
                     }
 
-                    // Create tag display and tag button container
+                    // Create tag container
                     const tagContainer = document.createElement('div');
                     tagContainer.className = 'seer-tags';
                     tagContainer.style.cssText = 'margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;';
                     
-                    // Add tag badges
+                    // Add tag badges with improved manual indicator
                     tags.forEach(tag => {
                         const badge = document.createElement('span');
                         badge.style.cssText = 'display:inline-flex;align-items:center;gap:2px;';
-                        const manualIndicator = tag.isManual ? ' *' : '';
-                        badge.innerHTML = `${tag.icon} <span style="background:${tag.color};color:#fff;padding:2px 7px;border-radius:6px;font-size:12px;font-weight:500;">${tag.name}${manualIndicator}</span>`;
+                        
+                        if (tag.isManual) {
+                            // Manual tags: dashed border, slightly different style
+                            badge.innerHTML = `${tag.icon} <span style="background:${tag.color};color:#fff;padding:2px 7px;border-radius:6px;font-size:12px;font-weight:500;border:2px dashed rgba(255,255,255,0.5);" title="Manually tagged">${tag.name}</span>`;
+                        } else {
+                            badge.innerHTML = `${tag.icon} <span style="background:${tag.color};color:#fff;padding:2px 7px;border-radius:6px;font-size:12px;font-weight:500;">${tag.name}</span>`;
+                        }
                         tagContainer.appendChild(badge);
                     });
                     
-                    // Add "Tag" button
+                    // Add buttons
                     if (agentName) {
+                        // Tag button
                         const tagBtn = document.createElement('button');
                         tagBtn.className = 'seer-tag-agent-btn';
                         tagBtn.innerHTML = '🏷️';
                         tagBtn.title = 'Manage tags for this agent';
-                        tagBtn.style.cssText = 'background:#E5E7EB;border:none;border-radius:4px;padding:2px 6px;font-size:14px;cursor:pointer;margin-left:4px;opacity:0.7;transition:opacity 0.2s;';
+                        tagBtn.style.cssText = 'background:#E5E7EB;border:none;border-radius:4px;padding:2px 6px;font-size:14px;cursor:pointer;opacity:0.7;transition:opacity 0.2s;';
                         tagBtn.onmouseenter = () => tagBtn.style.opacity = '1';
                         tagBtn.onmouseleave = () => tagBtn.style.opacity = '0.7';
-                        tagBtn.onclick = (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openAgentTagModal(agentName);
-                        };
+                        tagBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openAgentTagModal(agentName); };
                         tagContainer.appendChild(tagBtn);
+                        
+                        // Suggest pattern button (for untagged or to add patterns)
+                        const suggestBtn = document.createElement('button');
+                        suggestBtn.className = 'seer-suggest-btn';
+                        suggestBtn.innerHTML = '➕';
+                        suggestBtn.title = 'Suggest a pattern to auto-tag agents like this';
+                        suggestBtn.style.cssText = 'background:#DBEAFE;border:none;border-radius:4px;padding:2px 6px;font-size:14px;cursor:pointer;opacity:0.7;transition:opacity 0.2s;';
+                        suggestBtn.onmouseenter = () => suggestBtn.style.opacity = '1';
+                        suggestBtn.onmouseleave = () => suggestBtn.style.opacity = '0.7';
+                        suggestBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openSuggestPatternModal(agentName); };
+                        tagContainer.appendChild(suggestBtn);
                     }
 
                     let insertionTarget = card.querySelector('[data-automation-id*="agent-name"], [data-testid*="agent-name"], div.flex.items-center > div > div > p');
-                    if (!insertionTarget && card.tagName === 'TR') {
-                        insertionTarget = card.querySelector('td');
-                    }
+                    if (!insertionTarget && card.tagName === 'TR') insertionTarget = card.querySelector('td');
                     if (insertionTarget && insertionTarget.parentElement) {
                         insertionTarget.parentElement.appendChild(tagContainer);
                     } else {
@@ -351,36 +400,122 @@
                 }
             });
 
-            if (activeCategoryFilters.length > 0 || activeSourceFilters.length > 0) {
-                applyFilters();
-            }
+            applyFilters();
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in tagAgentCards:', error);
+        }
+    }
+
+    // ---- Suggest Pattern Modal ----
+    function openSuggestPatternModal(agentName) {
+        try {
+            document.getElementById('seer-suggest-pattern-modal')?.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'seer-suggest-pattern-modal';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10001;';
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;';
+            
+            // Extract potential keywords from agent name
+            const words = agentName.toLowerCase().match(/\[([^\]]+)\]|\b\w{3,}\b/g) || [];
+            const suggestions = [...new Set(words)].slice(0, 8);
+            
+            const categoryOptions = getSortedCategories().map(([key, cat]) => 
+                `<option value="${key}">${cat.icon} ${cat.name}</option>`
+            ).join('');
+
+            modal.innerHTML = `
+                <h2 style="margin:0 0 8px 0;font-size:20px;font-weight:700;">➕ Add Pattern</h2>
+                <p style="margin:0 0 4px 0;color:#374151;font-weight:600;">${agentName}</p>
+                <p style="margin:0 0 16px 0;color:#6B7280;font-size:14px;">Add a keyword pattern to auto-tag agents like this one.</p>
+                
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#6B7280;">Pattern to add:</label>
+                    <input type="text" id="seer-new-pattern" placeholder="e.g., [keyword] or phrase" style="width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                    ${suggestions.length > 0 ? `
+                        <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;">
+                            <span style="font-size:11px;color:#6B7280;">Suggestions:</span>
+                            ${suggestions.map(s => `<button class="seer-suggestion-btn" style="background:#E5E7EB;border:none;border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;">${s}</button>`).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+                
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#6B7280;">Add to filter:</label>
+                    <select id="seer-pattern-category" style="width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:6px;font-size:14px;">
+                        ${categoryOptions}
+                    </select>
+                </div>
+                
+                <div style="display:flex;gap:12px;">
+                    <button id="seer-add-pattern-btn" style="flex:1;background:#3B82F6;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">Add Pattern</button>
+                    <button id="seer-cancel-pattern-btn" style="flex:1;background:#E5E7EB;color:#111;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">Cancel</button>
+                </div>
+            `;
+
+            // Wire up suggestion clicks
+            modal.querySelectorAll('.seer-suggestion-btn').forEach(btn => {
+                btn.onclick = () => {
+                    modal.querySelector('#seer-new-pattern').value = btn.textContent;
+                };
+            });
+
+            modal.querySelector('#seer-add-pattern-btn').onclick = () => {
+                const pattern = modal.querySelector('#seer-new-pattern').value.trim().toLowerCase();
+                const categoryKey = modal.querySelector('#seer-pattern-category').value;
+                
+                if (!pattern) {
+                    alert('Please enter a pattern');
+                    return;
+                }
+                
+                if (!config.patterns[categoryKey]) {
+                    config.patterns[categoryKey] = [];
+                }
+                
+                if (!config.patterns[categoryKey].includes(pattern)) {
+                    config.patterns[categoryKey].push(pattern);
+                    saveConfig(config);
+                    overlay.remove();
+                    refreshPage();
+                    alert(`Pattern "${pattern}" added to ${config.categories[categoryKey].name}!`);
+                } else {
+                    alert('This pattern already exists in that filter.');
+                }
+            };
+
+            modal.querySelector('#seer-cancel-pattern-btn').onclick = () => overlay.remove();
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error opening suggest pattern modal:', error);
         }
     }
 
     // ---- Agent Tag Modal ----
     function openAgentTagModal(agentName) {
         try {
-            const existing = document.getElementById('seer-agent-tag-modal');
-            if (existing) existing.remove();
+            document.getElementById('seer-agent-tag-modal')?.remove();
 
             const currentTags = agentTags[agentName] || [];
-            const availableTags = Object.values(config.categories).filter(c => c.enabled).map(c => c.name);
+            const availableTags = getSortedCategories().map(([k, c]) => c.name);
 
             const overlay = document.createElement('div');
             overlay.id = 'seer-agent-tag-modal';
             overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10001;';
 
             const modal = document.createElement('div');
-            modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);';
+            modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;';
             
             let tagsHtml = availableTags.map(tagName => {
                 const isSelected = currentTags.includes(tagName);
                 const cat = Object.values(config.categories).find(c => c.name === tagName);
                 return `
-                    <label style="display:flex;align-items:center;padding:8px 12px;border-radius:6px;cursor:pointer;transition:background 0.2s;${isSelected ? 'background:#E0F2FE;' : ''}" 
-                           onmouseenter="this.style.background='#F3F4F6'" onmouseleave="this.style.background='${isSelected ? '#E0F2FE' : ''}'">
+                    <label style="display:flex;align-items:center;padding:8px 12px;border-radius:6px;cursor:pointer;transition:background 0.2s;${isSelected ? 'background:#E0F2FE;' : ''}">
                         <input type="checkbox" class="agent-tag-checkbox" value="${tagName}" ${isSelected ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;">
                         <span style="margin-left:10px;font-size:18px;">${cat?.icon || '🏷️'}</span>
                         <span style="margin-left:8px;font-weight:500;">${tagName}</span>
@@ -391,13 +526,13 @@
             modal.innerHTML = `
                 <h2 style="margin:0 0 8px 0;font-size:20px;font-weight:700;">🏷️ Tag Agent</h2>
                 <p style="margin:0 0 4px 0;color:#374151;font-weight:600;">${agentName}</p>
-                <p style="margin:0 0 16px 0;color:#6B7280;font-size:14px;">Select divisions to manually assign to this agent.</p>
+                <p style="margin:0 0 16px 0;color:#6B7280;font-size:14px;">Select filters to manually assign. These show with a dashed border.</p>
                 <div style="max-height:300px;overflow-y:auto;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:16px;">
-                    ${tagsHtml || '<p style="padding:16px;color:#6B7280;">No divisions available. Add divisions in Settings.</p>'}
+                    ${tagsHtml || '<p style="padding:16px;color:#6B7280;">No filters available.</p>'}
                 </div>
                 <div style="display:flex;gap:12px;">
                     <button id="seer-save-agent-tags" style="flex:1;background:#3B82F6;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">💾 Save</button>
-                    <button id="seer-clear-agent-tags" style="flex:1;background:#EF4444;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">🗑️ Clear All</button>
+                    <button id="seer-clear-agent-tags" style="flex:1;background:#EF4444;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">🗑️ Clear</button>
                     <button id="seer-cancel-agent-tags" style="flex:1;background:#E5E7EB;color:#111;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">✕ Cancel</button>
                 </div>
             `;
@@ -436,6 +571,7 @@
         try {
             if (document.getElementById('seer-tag-bar')) {
                 updateButtonStates();
+                updateFilterCount();
                 return;
             }
 
@@ -443,17 +579,25 @@
             bar.id = 'seer-tag-bar';
             bar.style.cssText = 'display:flex;flex-direction:column;gap:10px;margin-bottom:16px;padding:12px;background:#F9FAFB;border-radius:10px;border:1px solid #E5E7EB;';
 
-            const categoryRow = createFilterRow('Divisions', config.categories, 'category');
-            const sourceRow = createFilterRow('Data Sources', DATA_SOURCES, 'source');
+            // Filter count display
+            const countRow = document.createElement('div');
+            countRow.id = 'seer-filter-count';
+            countRow.style.cssText = 'font-size:14px;font-weight:600;color:#374151;padding:4px 0;';
+            countRow.textContent = 'Loading...';
+
+            const categoryRow = createFilterRow('Filters', config.categories, 'category');
+            const sourceRow = createFilterRow('Data Sources', dataSources, 'source');
             const controlsRow = createControlRow();
 
+            bar.appendChild(countRow);
             bar.appendChild(categoryRow);
             bar.appendChild(sourceRow);
             bar.appendChild(controlsRow);
 
+            // Insert bar
             let inserted = false;
             const allAgentsHeader = Array.from(document.querySelectorAll('h2, h3, div')).find(el => el.textContent.trim() === 'All Agents');
-            if (allAgentsHeader && allAgentsHeader.parentElement) {
+            if (allAgentsHeader?.parentElement) {
                 allAgentsHeader.parentElement.insertBefore(bar, allAgentsHeader.nextSibling);
                 inserted = true;
             }
@@ -462,11 +606,11 @@
                 const searchInput = document.querySelector('input[type="search"], input[placeholder*="Search"]');
                 if (searchInput) {
                     let container = searchInput.parentElement;
-                    while (container && container.parentElement && !container.classList.contains('flex')) {
+                    while (container?.parentElement && !container.classList.contains('flex')) {
                         container = container.parentElement;
                         if (container.classList.contains('gap-4')) break;
                     }
-                    if (container && container.parentElement) {
+                    if (container?.parentElement) {
                         container.parentElement.insertBefore(bar, container.nextSibling);
                         inserted = true;
                     }
@@ -475,7 +619,7 @@
 
             if (!inserted) {
                 const main = document.querySelector('.flex.flex-col.gap-4');
-                if (main && main.parentNode) {
+                if (main?.parentNode) {
                     main.parentNode.insertBefore(bar, main);
                     inserted = true;
                 }
@@ -483,7 +627,7 @@
 
             if (!inserted) {
                 const contentArea = document.querySelector('main, [role="main"], .content');
-                if (contentArea && contentArea.firstChild) {
+                if (contentArea?.firstChild) {
                     contentArea.insertBefore(bar, contentArea.firstChild);
                 } else {
                     document.body.insertBefore(bar, document.body.firstChild);
@@ -507,9 +651,10 @@
         labelEl.style.cssText = 'font-size:12px;font-weight:700;color:#4B5563;margin-right:6px;min-width:90px;';
         row.appendChild(labelEl);
 
-        Object.entries(configMap).forEach(([key, item]) => {
-            if (type === 'category' && !item.enabled) return;
-            
+        // Get sorted entries
+        const entries = type === 'category' ? getSortedCategories() : getSortedDataSources();
+
+        entries.forEach(([key, item]) => {
             const btn = document.createElement('button');
             btn.innerHTML = `${item.icon} ${item.name}`;
             btn.className = type === 'category' ? 'seer-filter-btn' : 'seer-source-btn';
@@ -531,6 +676,25 @@
             row.appendChild(btn);
         });
 
+        // Add "Untagged" button for category row
+        if (type === 'category') {
+            const untaggedBtn = document.createElement('button');
+            untaggedBtn.innerHTML = '❓ Untagged';
+            untaggedBtn.className = 'seer-untagged-btn';
+            untaggedBtn.style.cssText = 'background:#9CA3AF;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;';
+            untaggedBtn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showUntaggedOnly = !showUntaggedOnly;
+                if (showUntaggedOnly) {
+                    activeCategoryFilters = [];
+                    activeSourceFilters = [];
+                }
+                applyFilters();
+            };
+            row.appendChild(untaggedBtn);
+        }
+
         return row;
     }
 
@@ -539,18 +703,29 @@
         row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap;';
 
         const hint = document.createElement('span');
-        hint.textContent = 'Tip: Ctrl/Cmd+click to multi-select. Click 🏷️ on any agent to manually tag it.';
+        hint.textContent = 'Ctrl/Cmd+click to multi-select • 🏷️ to tag • ➕ to add pattern • Esc closes modals';
         hint.style.cssText = 'font-size:11px;color:#6B7280;flex:1;min-width:200px;';
 
         const resetBtn = document.createElement('button');
         resetBtn.textContent = '↺ Reset';
         resetBtn.className = 'seer-reset-btn';
-        resetBtn.style.cssText = 'background:#E5E7EB;color:#374151;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;';
+        resetBtn.style.cssText = 'background:#E5E7EB;color:#374151;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;';
         resetBtn.onclick = (e) => {
             e.preventDefault();
             e.stopPropagation();
-            handleCategorySelection(null, false, true);
-            handleSourceSelection(null, false, true);
+            activeCategoryFilters = [];
+            activeSourceFilters = [];
+            showUntaggedOnly = false;
+            applyFilters();
+        };
+
+        const shareBtn = document.createElement('button');
+        shareBtn.innerHTML = '🔗 Share';
+        shareBtn.style.cssText = 'background:#8B5CF6;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;';
+        shareBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openShareModal();
         };
 
         const settingsBtn = document.createElement('button');
@@ -564,33 +739,28 @@
 
         row.appendChild(hint);
         row.appendChild(resetBtn);
+        row.appendChild(shareBtn);
         row.appendChild(settingsBtn);
         return row;
     }
 
-    // ---- Filtering UX ----
-    function handleCategorySelection(name, multi = false, forceReset = false) {
-        if (forceReset || name === null) {
-            activeCategoryFilters = [];
-        } else if (multi) {
+    // ---- Filtering ----
+    function handleCategorySelection(name, multi = false) {
+        showUntaggedOnly = false;
+        if (multi) {
             activeCategoryFilters = toggleValue(activeCategoryFilters, name);
         } else {
-            activeCategoryFilters = activeCategoryFilters.length === 1 && activeCategoryFilters[0] === name
-                ? []
-                : [name];
+            activeCategoryFilters = activeCategoryFilters.length === 1 && activeCategoryFilters[0] === name ? [] : [name];
         }
         applyFilters();
     }
 
-    function handleSourceSelection(name, multi = false, forceReset = false) {
-        if (forceReset || name === null) {
-            activeSourceFilters = [];
-        } else if (multi) {
+    function handleSourceSelection(name, multi = false) {
+        showUntaggedOnly = false;
+        if (multi) {
             activeSourceFilters = toggleValue(activeSourceFilters, name);
         } else {
-            activeSourceFilters = activeSourceFilters.length === 1 && activeSourceFilters[0] === name
-                ? []
-                : [name];
+            activeSourceFilters = activeSourceFilters.length === 1 && activeSourceFilters[0] === name ? [] : [name];
         }
         applyFilters();
     }
@@ -609,22 +779,49 @@
             rows.forEach(row => {
                 const tagAttr = row.getAttribute('data-seer-tags') || '';
                 const sourceAttr = row.getAttribute('data-seer-datasources') || '';
+                const hasTags = row.getAttribute('data-seer-has-tags') === 'true';
                 const tags = tagAttr.split(',').map(t => t.trim()).filter(Boolean);
                 const sources = sourceAttr.split(',').map(t => t.trim()).filter(Boolean);
 
-                const matchesCategory = catFilters.length === 0 || catFilters.some(tag => tags.includes(tag));
-                const matchesSource = sourceFilters.length === 0 || sourceFilters.some(src => sources.includes(src));
-                const shouldShow = matchesCategory && matchesSource;
+                let shouldShow = true;
+                
+                if (showUntaggedOnly) {
+                    shouldShow = !hasTags;
+                } else {
+                    const matchesCategory = catFilters.length === 0 || catFilters.some(tag => tags.includes(tag));
+                    const matchesSource = sourceFilters.length === 0 || sourceFilters.some(src => sources.includes(src));
+                    shouldShow = matchesCategory && matchesSource;
+                }
 
                 const baseDisplay = row.dataset.originalDisplay || (row.tagName === 'TR' ? 'table-row' : '');
                 row.style.display = shouldShow ? baseDisplay : 'none';
                 if (shouldShow) visible++;
             });
 
-            console.log(`[NinjaCat Seer Tags] Filters applied. Visible rows: ${visible}/${rows.length}`);
+            currentFilterStats = { visible, total: rows.length };
+            updateFilterCount();
             updateButtonStates();
+            saveFilterState();
+            
+            console.log(`[NinjaCat Seer Tags] Filters applied. Visible: ${visible}/${rows.length}`);
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error applying filters:', error);
+        }
+    }
+
+    function updateFilterCount() {
+        const countEl = document.getElementById('seer-filter-count');
+        if (countEl) {
+            const { visible, total } = currentFilterStats;
+            const hasFilters = activeCategoryFilters.length > 0 || activeSourceFilters.length > 0 || showUntaggedOnly;
+            
+            if (hasFilters) {
+                countEl.textContent = `Showing ${visible} of ${total} agents`;
+                countEl.style.color = '#3B82F6';
+            } else {
+                countEl.textContent = `${total} agents`;
+                countEl.style.color = '#374151';
+            }
         }
     }
 
@@ -635,7 +832,7 @@
         document.querySelectorAll('.seer-filter-btn').forEach(btn => {
             const tag = btn.getAttribute('data-tag');
             const active = activeCats.has(tag);
-            btn.style.opacity = activeCats.size === 0 || active ? '1' : '0.6';
+            btn.style.opacity = (activeCats.size === 0 && !showUntaggedOnly) || active ? '1' : '0.5';
             btn.style.boxShadow = active ? '0 0 0 3px #111827' : '';
             btn.style.transform = active ? 'scale(1.05)' : 'scale(1)';
         });
@@ -643,246 +840,129 @@
         document.querySelectorAll('.seer-source-btn').forEach(btn => {
             const tag = btn.getAttribute('data-tag');
             const active = activeSources.has(tag);
-            btn.style.opacity = activeSources.size === 0 || active ? '1' : '0.6';
+            btn.style.opacity = (activeSources.size === 0 && !showUntaggedOnly) || active ? '1' : '0.5';
             btn.style.boxShadow = active ? '0 0 0 3px #111827' : '';
             btn.style.transform = active ? 'scale(1.05)' : 'scale(1)';
         });
 
+        const untaggedBtn = document.querySelector('.seer-untagged-btn');
+        if (untaggedBtn) {
+            untaggedBtn.style.opacity = showUntaggedOnly ? '1' : '0.7';
+            untaggedBtn.style.boxShadow = showUntaggedOnly ? '0 0 0 3px #111827' : '';
+            untaggedBtn.style.transform = showUntaggedOnly ? 'scale(1.05)' : 'scale(1)';
+        }
+
         const resetBtn = document.querySelector('.seer-reset-btn');
         if (resetBtn) {
-            if (activeCategoryFilters.length === 0 && activeSourceFilters.length === 0) {
-                resetBtn.style.boxShadow = '0 0 0 2px #3B82F6';
-                resetBtn.style.background = '#D1D5DB';
-            } else {
-                resetBtn.style.boxShadow = '';
-                resetBtn.style.background = '#E5E7EB';
-            }
+            const noFilters = activeCategoryFilters.length === 0 && activeSourceFilters.length === 0 && !showUntaggedOnly;
+            resetBtn.style.background = noFilters ? '#D1D5DB' : '#E5E7EB';
+            resetBtn.style.boxShadow = noFilters ? '0 0 0 2px #3B82F6' : '';
         }
     }
 
-    // ---- Settings Modal with full CRUD ----
-    function openSettingsModal() {
+    // ---- Share Modal ----
+    function openShareModal() {
         try {
-            const existing = document.getElementById('seer-settings-modal');
-            if (existing) existing.remove();
+            document.getElementById('seer-share-modal')?.remove();
 
             const overlay = document.createElement('div');
-            overlay.id = 'seer-settings-modal';
-            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10000;';
+            overlay.id = 'seer-share-modal';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10001;';
+
+            // Generate share code
+            const shareData = {
+                v: '1.5.0',
+                c: config,
+                d: dataSources,
+                t: agentTags
+            };
+            const shareCode = btoa(JSON.stringify(shareData));
 
             const modal = document.createElement('div');
-            modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:900px;width:95%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 25px -5px rgba(0,0,0,0.1);';
+            modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;';
+            
             modal.innerHTML = `
-                <h2 style="margin:0 0 8px 0;font-size:24px;font-weight:700;">⚙️ Settings</h2>
-                <p style="margin:0 0 16px 0;color:#6B7280;">Manage divisions, patterns, and import/export your configuration.</p>
+                <h2 style="margin:0 0 8px 0;font-size:20px;font-weight:700;">🔗 Share Configuration</h2>
+                <p style="margin:0 0 16px 0;color:#6B7280;font-size:14px;">Share your filters with teammates or sync across browsers.</p>
                 
-                <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-                    <button id="seer-add-division" style="background:#10B981;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">+ Add Division</button>
-                    <button id="seer-select-all" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✓ Enable All</button>
-                    <button id="seer-deselect-all" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✗ Disable All</button>
-                    <button id="seer-export-config" style="background:#3B82F6;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">📤 Export</button>
-                    <button id="seer-import-config" style="background:#8B5CF6;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">📥 Import</button>
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#6B7280;">Your share code:</label>
+                    <textarea id="seer-share-code" readonly style="width:100%;height:80px;padding:10px;border:1px solid #D1D5DB;border-radius:6px;font-family:monospace;font-size:11px;box-sizing:border-box;resize:none;">${shareCode}</textarea>
+                    <button id="seer-copy-code" style="margin-top:8px;background:#3B82F6;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">📋 Copy to Clipboard</button>
                 </div>
                 
-                <div id="seer-category-list" style="margin-bottom:24px;"></div>
+                <div style="border-top:1px solid #E5E7EB;padding-top:16px;margin-bottom:16px;">
+                    <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#6B7280;">Import from code:</label>
+                    <textarea id="seer-import-code" placeholder="Paste a share code here..." style="width:100%;height:80px;padding:10px;border:1px solid #D1D5DB;border-radius:6px;font-family:monospace;font-size:11px;box-sizing:border-box;resize:none;"></textarea>
+                    <button id="seer-import-code-btn" style="margin-top:8px;background:#10B981;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">📥 Import from Code</button>
+                </div>
                 
-                <div style="padding-top:16px;border-top:1px solid #E5E7EB;display:flex;gap:12px;flex-wrap:wrap;">
-                    <button id="seer-save-settings" style="flex:1;min-width:150px;background:#3B82F6;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">💾 Save & Apply</button>
-                    <button id="seer-reset-defaults" style="flex:1;min-width:150px;background:#EF4444;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">↺ Reset to Defaults</button>
-                    <button id="seer-cancel-settings" style="flex:1;min-width:150px;background:#E5E7EB;color:#111;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">✕ Cancel</button>
+                <div style="display:flex;gap:12px;">
+                    <button id="seer-export-file" style="flex:1;background:#6B7280;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">💾 Export as File</button>
+                    <button id="seer-import-file" style="flex:1;background:#6B7280;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">📂 Import from File</button>
+                    <button id="seer-close-share" style="flex:1;background:#E5E7EB;color:#111;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">✕ Close</button>
                 </div>
             `;
 
-            renderCategoryList(modal.querySelector('#seer-category-list'));
-
-            // Add Division
-            modal.querySelector('#seer-add-division').onclick = () => {
-                const newKey = 'custom_' + Date.now();
-                config.categories[newKey] = {
-                    name: 'NEW',
-                    color: '#6B7280',
-                    icon: '🏷️',
-                    enabled: true
-                };
-                config.patterns[newKey] = ['[new]'];
-                renderCategoryList(modal.querySelector('#seer-category-list'));
+            modal.querySelector('#seer-copy-code').onclick = () => {
+                navigator.clipboard.writeText(shareCode).then(() => {
+                    alert('Share code copied to clipboard!');
+                }).catch(() => {
+                    modal.querySelector('#seer-share-code').select();
+                    document.execCommand('copy');
+                    alert('Share code copied!');
+                });
             };
 
-            modal.querySelector('#seer-select-all').onclick = () => {
-                modal.querySelectorAll('.category-toggle').forEach(cb => cb.checked = true);
-            };
-            modal.querySelector('#seer-deselect-all').onclick = () => {
-                modal.querySelectorAll('.category-toggle').forEach(cb => cb.checked = false);
-            };
-            
-            // Export
-            modal.querySelector('#seer-export-config').onclick = () => {
-                exportConfig();
-            };
-            
-            // Import
-            modal.querySelector('#seer-import-config').onclick = () => {
-                importConfig(overlay);
-            };
-
-            modal.querySelector('#seer-save-settings').onclick = () => {
-                saveSettingsFromModal(modal);
-                overlay.remove();
-                refreshPage();
-            };
-            modal.querySelector('#seer-reset-defaults').onclick = () => {
-                if (confirm('Reset all settings to defaults? This will also clear all manual agent tags.')) {
-                    config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
-                    agentTags = {};
-                    saveConfig(config);
-                    saveAgentTags(agentTags);
-                    overlay.remove();
-                    refreshPage();
+            modal.querySelector('#seer-import-code-btn').onclick = () => {
+                const code = modal.querySelector('#seer-import-code').value.trim();
+                if (!code) {
+                    alert('Please paste a share code first.');
+                    return;
+                }
+                try {
+                    const data = JSON.parse(atob(code));
+                    if (!data.c || !data.c.categories) throw new Error('Invalid format');
+                    
+                    const catCount = Object.keys(data.c.categories).length;
+                    const srcCount = Object.keys(data.d || {}).length;
+                    const tagCount = Object.keys(data.t || {}).length;
+                    
+                    if (confirm(`Import configuration?\n\n• ${catCount} filters\n• ${srcCount} data sources\n• ${tagCount} agent tags\n\nThis will replace your current settings.`)) {
+                        config = data.c;
+                        dataSources = data.d || DEFAULT_DATA_SOURCES;
+                        agentTags = data.t || {};
+                        saveConfig(config);
+                        saveDataSources(dataSources);
+                        saveAgentTags(agentTags);
+                        overlay.remove();
+                        refreshPage();
+                        alert('Configuration imported!');
+                    }
+                } catch (e) {
+                    alert('Invalid share code. Please check and try again.');
                 }
             };
-            modal.querySelector('#seer-cancel-settings').onclick = () => overlay.remove();
+
+            modal.querySelector('#seer-export-file').onclick = () => exportConfigToFile();
+            modal.querySelector('#seer-import-file').onclick = () => importConfigFromFile(overlay);
+            modal.querySelector('#seer-close-share').onclick = () => overlay.remove();
             overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
             overlay.appendChild(modal);
             document.body.appendChild(overlay);
         } catch (error) {
-            console.error('[NinjaCat Seer Tags] Error opening settings:', error);
+            console.error('[NinjaCat Seer Tags] Error opening share modal:', error);
         }
     }
 
-    function renderCategoryList(container) {
-        container.innerHTML = '';
-        
-        Object.entries(config.categories).forEach(([key, category]) => {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'seer-category-item';
-            wrapper.setAttribute('data-key', key);
-            wrapper.style.cssText = 'display:flex;flex-direction:column;padding:16px;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:12px;background:#F9FAFB;';
-
-            const header = document.createElement('div');
-            header.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;';
-            
-            // Checkbox
-            const toggle = document.createElement('input');
-            toggle.type = 'checkbox';
-            toggle.className = 'category-toggle';
-            toggle.checked = category.enabled;
-            toggle.style.cssText = 'width:20px;height:20px;cursor:pointer;';
-            
-            // Icon selector
-            const iconSelect = document.createElement('select');
-            iconSelect.className = 'category-icon';
-            iconSelect.style.cssText = 'font-size:18px;padding:4px;border:1px solid #D1D5DB;border-radius:4px;cursor:pointer;';
-            DEFAULT_ICONS.forEach(icon => {
-                const opt = document.createElement('option');
-                opt.value = icon;
-                opt.textContent = icon;
-                if (icon === category.icon) opt.selected = true;
-                iconSelect.appendChild(opt);
-            });
-            // Add current icon if not in defaults
-            if (!DEFAULT_ICONS.includes(category.icon)) {
-                const opt = document.createElement('option');
-                opt.value = category.icon;
-                opt.textContent = category.icon;
-                opt.selected = true;
-                iconSelect.appendChild(opt);
-            }
-            
-            // Name input
-            const nameInput = document.createElement('input');
-            nameInput.type = 'text';
-            nameInput.className = 'category-name';
-            nameInput.value = category.name;
-            nameInput.style.cssText = 'flex:1;min-width:100px;padding:6px 10px;border:1px solid #D1D5DB;border-radius:4px;font-weight:600;font-size:14px;';
-            
-            // Color picker
-            const colorInput = document.createElement('input');
-            colorInput.type = 'color';
-            colorInput.className = 'category-color';
-            colorInput.value = category.color;
-            colorInput.style.cssText = 'width:50px;height:32px;border:none;border-radius:4px;cursor:pointer;';
-            
-            // Delete button
-            const deleteBtn = document.createElement('button');
-            deleteBtn.innerHTML = '🗑️';
-            deleteBtn.title = 'Delete this division';
-            deleteBtn.style.cssText = 'background:#FEE2E2;border:none;border-radius:4px;padding:6px 10px;cursor:pointer;font-size:16px;';
-            deleteBtn.onclick = () => {
-                if (confirm(`Delete division "${category.name}"?`)) {
-                    delete config.categories[key];
-                    delete config.patterns[key];
-                    wrapper.remove();
-                }
-            };
-
-            header.appendChild(toggle);
-            header.appendChild(iconSelect);
-            header.appendChild(nameInput);
-            header.appendChild(colorInput);
-            header.appendChild(deleteBtn);
-
-            // Patterns textarea
-            const patternsRow = document.createElement('div');
-            const patternsLabel = document.createElement('label');
-            patternsLabel.textContent = 'Keyword Patterns (comma-separated):';
-            patternsLabel.style.cssText = 'display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#6B7280;';
-            
-            const patternsInput = document.createElement('textarea');
-            patternsInput.className = 'category-patterns';
-            patternsInput.rows = 2;
-            patternsInput.value = config.patterns[key]?.join(', ') || '';
-            patternsInput.style.cssText = 'width:100%;padding:8px;border:1px solid #D1D5DB;border-radius:4px;font-size:12px;font-family:monospace;box-sizing:border-box;';
-            
-            patternsRow.appendChild(patternsLabel);
-            patternsRow.appendChild(patternsInput);
-
-            wrapper.appendChild(header);
-            wrapper.appendChild(patternsRow);
-            container.appendChild(wrapper);
-        });
-    }
-
-    function saveSettingsFromModal(modal) {
-        try {
-            const newCategories = {};
-            const newPatterns = {};
-            
-            modal.querySelectorAll('.seer-category-item').forEach(item => {
-                const key = item.getAttribute('data-key');
-                const toggle = item.querySelector('.category-toggle');
-                const iconSelect = item.querySelector('.category-icon');
-                const nameInput = item.querySelector('.category-name');
-                const colorInput = item.querySelector('.category-color');
-                const patternsInput = item.querySelector('.category-patterns');
-                
-                const name = nameInput?.value?.trim() || 'UNNAMED';
-                
-                newCategories[key] = {
-                    name: name,
-                    color: colorInput?.value || '#6B7280',
-                    icon: iconSelect?.value || '🏷️',
-                    enabled: toggle?.checked ?? true
-                };
-                
-                newPatterns[key] = patternsInput?.value?.split(',').map(p => p.trim()).filter(Boolean) || [];
-            });
-            
-            config.categories = newCategories;
-            config.patterns = newPatterns;
-            saveConfig(config);
-        } catch (error) {
-            console.error('[NinjaCat Seer Tags] Error saving settings:', error);
-        }
-    }
-
-    // ---- Import/Export ----
-    function exportConfig() {
+    function exportConfigToFile() {
         try {
             const exportData = {
-                version: '1.4.0',
+                version: '1.5.0',
                 exportedAt: new Date().toISOString(),
                 config: config,
+                dataSources: dataSources,
                 agentTags: agentTags
             };
             
@@ -890,78 +970,429 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `ninjacat-seer-tags-export-${new Date().toISOString().split('T')[0]}.json`;
+            a.download = `ninjacat-seer-config-${new Date().toISOString().split('T')[0]}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             
-            console.log('[NinjaCat Seer Tags] Configuration exported');
-            alert('Configuration exported successfully!');
+            alert('Configuration exported!');
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error exporting config:', error);
-            alert('Error exporting configuration: ' + error.message);
+            alert('Error exporting: ' + error.message);
         }
     }
 
-    function importConfig(settingsOverlay) {
-        try {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.json';
+    function importConfigFromFile(parentOverlay) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
             
-            input.onchange = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    try {
-                        const importData = JSON.parse(event.target.result);
-                        
-                        // Validate structure
-                        if (!importData.config || !importData.config.categories) {
-                            throw new Error('Invalid configuration file format');
-                        }
-                        
-                        // Confirm import
-                        const categoryCount = Object.keys(importData.config.categories).length;
-                        const tagCount = Object.keys(importData.agentTags || {}).length;
-                        
-                        if (confirm(`Import configuration?\n\n• ${categoryCount} divisions\n• ${tagCount} agent tag assignments\n\nThis will replace your current settings.`)) {
-                            config = importData.config;
-                            agentTags = importData.agentTags || {};
-                            
-                            saveConfig(config);
-                            saveAgentTags(agentTags);
-                            
-                            console.log('[NinjaCat Seer Tags] Configuration imported');
-                            alert('Configuration imported successfully!');
-                            
-                            if (settingsOverlay) settingsOverlay.remove();
-                            refreshPage();
-                        }
-                    } catch (parseError) {
-                        console.error('[NinjaCat Seer Tags] Error parsing import file:', parseError);
-                        alert('Error importing configuration: ' + parseError.message);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    
+                    if (!data.config?.categories) throw new Error('Invalid format');
+                    
+                    const catCount = Object.keys(data.config.categories).length;
+                    const srcCount = Object.keys(data.dataSources || {}).length;
+                    const tagCount = Object.keys(data.agentTags || {}).length;
+                    
+                    if (confirm(`Import configuration?\n\n• ${catCount} filters\n• ${srcCount} data sources\n• ${tagCount} agent tags\n\nThis will replace your current settings.`)) {
+                        config = data.config;
+                        dataSources = data.dataSources || DEFAULT_DATA_SOURCES;
+                        agentTags = data.agentTags || {};
+                        saveConfig(config);
+                        saveDataSources(dataSources);
+                        saveAgentTags(agentTags);
+                        if (parentOverlay) parentOverlay.remove();
+                        refreshPage();
+                        alert('Configuration imported!');
                     }
-                };
-                reader.readAsText(file);
+                } catch (e) {
+                    alert('Error importing: ' + e.message);
+                }
             };
+            reader.readAsText(file);
+        };
+        
+        input.click();
+    }
+
+    // ---- Settings Modal ----
+    function openSettingsModal() {
+        try {
+            document.getElementById('seer-settings-modal')?.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'seer-settings-modal';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10000;';
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:900px;width:95%;max-height:90vh;overflow-y:auto;';
             
-            input.click();
+            modal.innerHTML = `
+                <h2 style="margin:0 0 8px 0;font-size:24px;font-weight:700;">⚙️ Settings</h2>
+                <p style="margin:0 0 16px 0;color:#6B7280;">Customize filters, data sources, and manage your configuration.</p>
+                
+                <!-- Search box -->
+                <div style="margin-bottom:16px;">
+                    <input type="text" id="seer-settings-search" placeholder="Search filters..." style="width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                </div>
+                
+                <!-- Tabs -->
+                <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid #E5E7EB;">
+                    <button class="seer-tab-btn" data-tab="filters" style="padding:10px 20px;border:none;background:#3B82F6;color:white;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">Filters</button>
+                    <button class="seer-tab-btn" data-tab="sources" style="padding:10px 20px;border:none;background:#E5E7EB;color:#374151;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">Data Sources</button>
+                </div>
+                
+                <!-- Filters Tab -->
+                <div id="seer-tab-filters" class="seer-tab-content">
+                    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                        <button id="seer-add-filter" style="background:#10B981;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">+ Add Filter</button>
+                        <button id="seer-enable-all-filters" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✓ Enable All</button>
+                        <button id="seer-disable-all-filters" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✗ Disable All</button>
+                    </div>
+                    <div id="seer-filter-list"></div>
+                </div>
+                
+                <!-- Data Sources Tab -->
+                <div id="seer-tab-sources" class="seer-tab-content" style="display:none;">
+                    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                        <button id="seer-add-source" style="background:#10B981;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">+ Add Source</button>
+                        <button id="seer-enable-all-sources" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✓ Enable All</button>
+                        <button id="seer-disable-all-sources" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✗ Disable All</button>
+                    </div>
+                    <div id="seer-source-list"></div>
+                </div>
+                
+                <div style="padding-top:16px;border-top:1px solid #E5E7EB;display:flex;gap:12px;flex-wrap:wrap;">
+                    <button id="seer-save-settings" style="flex:1;min-width:120px;background:#3B82F6;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">💾 Save</button>
+                    <button id="seer-reset-defaults" style="flex:1;min-width:120px;background:#EF4444;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">↺ Reset All</button>
+                    <button id="seer-cancel-settings" style="flex:1;min-width:120px;background:#E5E7EB;color:#111;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">✕ Cancel</button>
+                </div>
+            `;
+
+            // Render lists
+            renderFilterList(modal.querySelector('#seer-filter-list'));
+            renderSourceList(modal.querySelector('#seer-source-list'));
+
+            // Tab switching
+            modal.querySelectorAll('.seer-tab-btn').forEach(btn => {
+                btn.onclick = () => {
+                    modal.querySelectorAll('.seer-tab-btn').forEach(b => {
+                        b.style.background = '#E5E7EB';
+                        b.style.color = '#374151';
+                    });
+                    btn.style.background = '#3B82F6';
+                    btn.style.color = 'white';
+                    
+                    modal.querySelectorAll('.seer-tab-content').forEach(c => c.style.display = 'none');
+                    modal.querySelector(`#seer-tab-${btn.dataset.tab}`).style.display = 'block';
+                };
+            });
+
+            // Search
+            modal.querySelector('#seer-settings-search').oninput = (e) => {
+                const query = e.target.value.toLowerCase();
+                modal.querySelectorAll('.seer-settings-item').forEach(item => {
+                    const name = item.querySelector('.item-name')?.value?.toLowerCase() || '';
+                    const patterns = item.querySelector('.item-patterns')?.value?.toLowerCase() || '';
+                    item.style.display = (name.includes(query) || patterns.includes(query)) ? '' : 'none';
+                });
+            };
+
+            // Add filter
+            modal.querySelector('#seer-add-filter').onclick = () => {
+                const newKey = 'custom_' + Date.now();
+                const maxOrder = Math.max(0, ...Object.values(config.categories).map(c => c.order || 0));
+                config.categories[newKey] = { name: 'NEW', color: '#6B7280', icon: '🏷️', enabled: true, order: maxOrder + 1 };
+                config.patterns[newKey] = ['[new]'];
+                renderFilterList(modal.querySelector('#seer-filter-list'));
+            };
+
+            // Add source
+            modal.querySelector('#seer-add-source').onclick = () => {
+                const newKey = 'source_' + Date.now();
+                const maxOrder = Math.max(0, ...Object.values(dataSources).map(s => s.order || 0));
+                dataSources[newKey] = { name: 'New Source', color: '#6B7280', icon: '📊', patterns: ['keyword'], enabled: true, order: maxOrder + 1 };
+                renderSourceList(modal.querySelector('#seer-source-list'));
+            };
+
+            // Enable/disable all
+            modal.querySelector('#seer-enable-all-filters').onclick = () => modal.querySelectorAll('#seer-filter-list .item-toggle').forEach(cb => cb.checked = true);
+            modal.querySelector('#seer-disable-all-filters').onclick = () => modal.querySelectorAll('#seer-filter-list .item-toggle').forEach(cb => cb.checked = false);
+            modal.querySelector('#seer-enable-all-sources').onclick = () => modal.querySelectorAll('#seer-source-list .item-toggle').forEach(cb => cb.checked = true);
+            modal.querySelector('#seer-disable-all-sources').onclick = () => modal.querySelectorAll('#seer-source-list .item-toggle').forEach(cb => cb.checked = false);
+
+            // Save
+            modal.querySelector('#seer-save-settings').onclick = () => {
+                saveSettingsFromModal(modal);
+                overlay.remove();
+                refreshPage();
+            };
+
+            // Reset
+            modal.querySelector('#seer-reset-defaults').onclick = () => {
+                if (confirm('Reset ALL settings to defaults? This clears filters, data sources, and agent tags.')) {
+                    config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+                    dataSources = JSON.parse(JSON.stringify(DEFAULT_DATA_SOURCES));
+                    agentTags = {};
+                    saveConfig(config);
+                    saveDataSources(dataSources);
+                    saveAgentTags(agentTags);
+                    overlay.remove();
+                    refreshPage();
+                }
+            };
+
+            modal.querySelector('#seer-cancel-settings').onclick = () => overlay.remove();
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
+            // Setup drag and drop
+            setupDragAndDrop(modal.querySelector('#seer-filter-list'), 'filter');
+            setupDragAndDrop(modal.querySelector('#seer-source-list'), 'source');
         } catch (error) {
-            console.error('[NinjaCat Seer Tags] Error initiating import:', error);
-            alert('Error importing configuration: ' + error.message);
+            console.error('[NinjaCat Seer Tags] Error opening settings:', error);
         }
     }
 
+    function renderFilterList(container) {
+        container.innerHTML = '';
+        
+        const sorted = Object.entries(config.categories).sort((a, b) => (a[1].order || 0) - (b[1].order || 0));
+        
+        sorted.forEach(([key, cat]) => {
+            const item = createSettingsItem(key, cat, config.patterns[key] || [], 'filter');
+            container.appendChild(item);
+        });
+    }
+
+    function renderSourceList(container) {
+        container.innerHTML = '';
+        
+        const sorted = Object.entries(dataSources).sort((a, b) => (a[1].order || 0) - (b[1].order || 0));
+        
+        sorted.forEach(([key, src]) => {
+            const item = createSettingsItem(key, src, src.patterns || [], 'source');
+            container.appendChild(item);
+        });
+    }
+
+    function createSettingsItem(key, item, patterns, type) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'seer-settings-item';
+        wrapper.setAttribute('data-key', key);
+        wrapper.setAttribute('data-type', type);
+        wrapper.draggable = true;
+        wrapper.style.cssText = 'display:flex;flex-direction:column;padding:12px;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:8px;background:#F9FAFB;cursor:move;';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;';
+        
+        // Drag handle
+        const handle = document.createElement('span');
+        handle.innerHTML = '⋮⋮';
+        handle.style.cssText = 'color:#9CA3AF;cursor:move;font-size:16px;';
+        
+        // Toggle
+        const toggle = document.createElement('input');
+        toggle.type = 'checkbox';
+        toggle.className = 'item-toggle';
+        toggle.checked = item.enabled !== false;
+        toggle.style.cssText = 'width:18px;height:18px;cursor:pointer;';
+        
+        // Icon
+        const iconSelect = document.createElement('select');
+        iconSelect.className = 'item-icon';
+        iconSelect.style.cssText = 'font-size:16px;padding:4px;border:1px solid #D1D5DB;border-radius:4px;cursor:pointer;';
+        DEFAULT_ICONS.forEach(icon => {
+            const opt = document.createElement('option');
+            opt.value = icon;
+            opt.textContent = icon;
+            if (icon === item.icon) opt.selected = true;
+            iconSelect.appendChild(opt);
+        });
+        if (!DEFAULT_ICONS.includes(item.icon)) {
+            const opt = document.createElement('option');
+            opt.value = item.icon;
+            opt.textContent = item.icon;
+            opt.selected = true;
+            iconSelect.appendChild(opt);
+        }
+        
+        // Name
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'item-name';
+        nameInput.value = item.name;
+        nameInput.style.cssText = 'flex:1;min-width:80px;padding:6px 10px;border:1px solid #D1D5DB;border-radius:4px;font-weight:600;font-size:13px;';
+        
+        // Color
+        const colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.className = 'item-color';
+        colorInput.value = item.color;
+        colorInput.style.cssText = 'width:40px;height:28px;border:none;border-radius:4px;cursor:pointer;';
+        
+        // Delete
+        const deleteBtn = document.createElement('button');
+        deleteBtn.innerHTML = '🗑️';
+        deleteBtn.title = 'Delete';
+        deleteBtn.style.cssText = 'background:#FEE2E2;border:none;border-radius:4px;padding:4px 8px;cursor:pointer;font-size:14px;';
+        deleteBtn.onclick = () => {
+            const name = item.name;
+            const usedBy = type === 'filter' ? getAgentsUsingTag(name) : [];
+            
+            let msg = `Delete "${name}"?`;
+            if (usedBy.length > 0) {
+                msg += `\n\n⚠️ Warning: ${usedBy.length} agent(s) have this tag manually assigned. Their tags will be removed.`;
+            }
+            
+            if (confirm(msg)) {
+                if (type === 'filter') {
+                    delete config.categories[key];
+                    delete config.patterns[key];
+                    // Clean up agent tags
+                    Object.keys(agentTags).forEach(agent => {
+                        agentTags[agent] = agentTags[agent].filter(t => t !== name);
+                        if (agentTags[agent].length === 0) delete agentTags[agent];
+                    });
+                    saveAgentTags(agentTags);
+                } else {
+                    delete dataSources[key];
+                }
+                wrapper.remove();
+            }
+        };
+
+        header.appendChild(handle);
+        header.appendChild(toggle);
+        header.appendChild(iconSelect);
+        header.appendChild(nameInput);
+        header.appendChild(colorInput);
+        header.appendChild(deleteBtn);
+
+        // Patterns
+        const patternsRow = document.createElement('div');
+        const patternsLabel = document.createElement('label');
+        patternsLabel.textContent = 'Patterns (comma-separated):';
+        patternsLabel.style.cssText = 'display:block;margin-bottom:4px;font-size:11px;font-weight:600;color:#6B7280;';
+        
+        const patternsInput = document.createElement('textarea');
+        patternsInput.className = 'item-patterns';
+        patternsInput.rows = 1;
+        patternsInput.value = patterns.join(', ');
+        patternsInput.style.cssText = 'width:100%;padding:6px;border:1px solid #D1D5DB;border-radius:4px;font-size:11px;font-family:monospace;box-sizing:border-box;resize:none;';
+        
+        patternsRow.appendChild(patternsLabel);
+        patternsRow.appendChild(patternsInput);
+
+        wrapper.appendChild(header);
+        wrapper.appendChild(patternsRow);
+        
+        return wrapper;
+    }
+
+    function setupDragAndDrop(container, type) {
+        let draggedItem = null;
+
+        container.addEventListener('dragstart', (e) => {
+            if (e.target.classList.contains('seer-settings-item')) {
+                draggedItem = e.target;
+                e.target.style.opacity = '0.5';
+            }
+        });
+
+        container.addEventListener('dragend', (e) => {
+            if (e.target.classList.contains('seer-settings-item')) {
+                e.target.style.opacity = '1';
+                draggedItem = null;
+            }
+        });
+
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const afterElement = getDragAfterElement(container, e.clientY);
+            if (draggedItem) {
+                if (afterElement == null) {
+                    container.appendChild(draggedItem);
+                } else {
+                    container.insertBefore(draggedItem, afterElement);
+                }
+            }
+        });
+    }
+
+    function getDragAfterElement(container, y) {
+        const elements = [...container.querySelectorAll('.seer-settings-item:not([style*="opacity: 0.5"])')];
+        return elements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+                return { offset, element: child };
+            }
+            return closest;
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
+
+    function saveSettingsFromModal(modal) {
+        try {
+            // Save filters
+            const newCategories = {};
+            const newPatterns = {};
+            
+            modal.querySelectorAll('#seer-filter-list .seer-settings-item').forEach((item, index) => {
+                const key = item.getAttribute('data-key');
+                newCategories[key] = {
+                    name: item.querySelector('.item-name')?.value?.trim() || 'UNNAMED',
+                    color: item.querySelector('.item-color')?.value || '#6B7280',
+                    icon: item.querySelector('.item-icon')?.value || '🏷️',
+                    enabled: item.querySelector('.item-toggle')?.checked ?? true,
+                    order: index
+                };
+                newPatterns[key] = item.querySelector('.item-patterns')?.value?.split(',').map(p => p.trim()).filter(Boolean) || [];
+            });
+            
+            config.categories = newCategories;
+            config.patterns = newPatterns;
+            saveConfig(config);
+
+            // Save data sources
+            const newSources = {};
+            
+            modal.querySelectorAll('#seer-source-list .seer-settings-item').forEach((item, index) => {
+                const key = item.getAttribute('data-key');
+                newSources[key] = {
+                    name: item.querySelector('.item-name')?.value?.trim() || 'UNNAMED',
+                    color: item.querySelector('.item-color')?.value || '#6B7280',
+                    icon: item.querySelector('.item-icon')?.value || '📊',
+                    patterns: item.querySelector('.item-patterns')?.value?.split(',').map(p => p.trim()).filter(Boolean) || [],
+                    enabled: item.querySelector('.item-toggle')?.checked ?? true,
+                    order: index
+                };
+            });
+            
+            dataSources = newSources;
+            saveDataSources(dataSources);
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error saving settings:', error);
+        }
+    }
+
+    // ---- Refresh & Run ----
     function refreshPage() {
-        document.querySelectorAll('.seer-tags').forEach(el => el.remove());
-        document.querySelectorAll('.seer-tag-agent-btn').forEach(el => el.remove());
-        const bar = document.getElementById('seer-tag-bar');
-        if (bar) bar.remove();
-        setTimeout(runAll, 500);
+        document.querySelectorAll('.seer-tags, .seer-tag-agent-btn, .seer-suggest-btn').forEach(el => el.remove());
+        document.getElementById('seer-tag-bar')?.remove();
+        setTimeout(runAll, 300);
     }
 
     function runAll() {
@@ -969,7 +1400,6 @@
             expandShowAll();
             tagAgentCards();
             addTagFilterBar();
-            applyFilters();
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in runAll:', error);
         }
@@ -982,12 +1412,11 @@
         const observer = new MutationObserver(() => {
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
-                console.log('[NinjaCat Seer Tags] DOM changed, re-running logic');
+                console.log('[NinjaCat Seer Tags] DOM changed, re-running');
                 runAll();
             }, 1000);
         });
         observer.observe(document.body, { childList: true, subtree: true });
-        console.log('[NinjaCat Seer Tags] MutationObserver started');
     }
 
     if (document.readyState === 'loading') {

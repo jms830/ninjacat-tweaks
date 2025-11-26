@@ -4,18 +4,21 @@ Browser userscripts to enhance the NinjaCat experience.
 
 ## Available Scripts
 
-### 1. NinjaCat Seer Agent Tags & Filter (v1.4.0)
+### 1. NinjaCat Seer Agent Tags & Filter (v1.5.0)
 
 **File**: `ninjacat-seer-tags.user.js`
 
 **What it does**:
-- 🏷️ Automatically tags agents with division badges (SEO, PDM, Analytics, CE, Ops, WIP, DNU, PROD, CLIENT, UTILITY)
-- 📊 Detects data source icons (Google Analytics, GSC, Sheets, Meta Ads, Google Ads) and exposes matching filters
-- 🔍 Provides multi-select filters (Ctrl/Cmd-click) with visual states and Reset button
-- ⚙️ **Full division management**: Add, rename, delete, change colors/icons, edit patterns
-- 🏷️ **Manual agent tagging**: Click the tag button on any agent to assign custom divisions
-- 📤 **Import/Export**: Backup and restore your entire configuration including manual tags
-- ⚡ Auto-expands the "Show All" button on page load and re-runs on SPA navigation
+- 🏷️ Automatically tags agents with division badges (SEO, PDM, Analytics, CE, Ops, etc.)
+- 📊 Detects and filters by data sources (Google Analytics, GSC, Sheets, Meta Ads, Google Ads)
+- 🔍 Multi-select filters (Ctrl/Cmd-click) with "Showing X of Y" count display
+- ❓ **Untagged filter**: Find agents that need categorization
+- ⚙️ **Full customization**: Add/edit/delete/reorder filters AND data sources
+- 🏷️ **Manual tagging**: Click 🏷️ to assign tags, click ➕ to suggest new patterns
+- 🔗 **Team sharing**: Share your config via code or file with teammates
+- 💾 **Persistent state**: Filters survive page refresh
+- ⌨️ **Keyboard shortcuts**: Esc closes modals
+- ⚡ Auto-expands "Show All" and re-runs on SPA navigation
 
 **Quick Install**:
 1. Install [Tampermonkey](https://www.tampermonkey.net/)
