@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat Export
 // @namespace    http://tampermonkey.net/
-// @version      2.1.0
+// @version      2.2.0
 // @description  Export NinjaCat agent chats to PDF (print) or Markdown, with expand/collapse controls
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents/*/chat/*
@@ -16,10 +16,10 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Chat Export] Script loaded v2.1.0');
+    console.log('[NinjaCat Chat Export] Script loaded v2.2.0');
 
     let exportButtonAdded = false;
-    let printHeaderAdded = false;
+    let printEnhancementsAdded = false;
 
     // ---- Print Styles ----
     const printStyles = `
@@ -138,17 +138,92 @@
                 display: none !important;
             }
 
-            /* Show print header */
+            /* ============================================
+               PRINT HEADER - Visible only when printing
+               ============================================ */
             #ninjacat-print-header {
                 display: block !important;
-                padding: 20px !important;
-                margin-bottom: 20px !important;
-                border-bottom: 2px solid #E5E7EB !important;
+                padding: 24px 20px !important;
+                margin: 0 0 24px 0 !important;
+                border-bottom: 3px solid #3B82F6 !important;
+                background: #F8FAFC !important;
+            }
+
+            /* ============================================
+               USER MESSAGE STYLING FOR PRINT
+               ============================================ */
+            .ninjacat-user-label {
+                display: block !important;
+            }
+
+            .self-end,
+            [class*="self-end"] {
+                align-self: flex-start !important;
+                max-width: 100% !important;
+            }
+
+            .self-end .whitespace-pre-wrap,
+            .bg-grey-10 {
+                background: #DBEAFE !important;
+                border-left: 4px solid #3B82F6 !important;
+                padding: 12px 16px !important;
+                border-radius: 8px !important;
+                margin: 0 !important;
+                max-width: 100% !important;
+            }
+
+            /* ============================================
+               MESSAGE DIVIDERS FOR PRINT
+               ============================================ */
+            .ninjacat-message-divider {
+                display: block !important;
+            }
+
+            /* ============================================
+               AGENT LABEL STYLING FOR PRINT
+               ============================================ */
+            .ninjacat-agent-label {
+                display: block !important;
+            }
+
+            /* ============================================
+               HIDE TASK DROPDOWN ARROWS IN PRINT
+               ============================================ */
+            [data-is-collapsed] {
+                display: none !important;
+            }
+
+            /* Keep the task count text visible */
+            .cursor-pointer .text-blue-100.font-semibold {
+                display: inline !important;
+            }
+
+            /* ============================================
+               TIGHTEN SPACING
+               ============================================ */
+            .mt-6 {
+                margin-top: 16px !important;
+            }
+
+            .mb-\\[18px\\] {
+                margin-bottom: 12px !important;
+            }
+
+            .gap-3 {
+                gap: 8px !important;
             }
         }
 
-        /* Hide print header on screen */
+        /* ============================================
+           SCREEN STYLES - Hide print-only elements
+           ============================================ */
         #ninjacat-print-header {
+            display: none;
+        }
+
+        .ninjacat-user-label,
+        .ninjacat-agent-label,
+        .ninjacat-message-divider {
             display: none;
         }
     `;
@@ -163,7 +238,6 @@
 
             if (chatContainer && !exportButtonAdded) {
                 addExportControls();
-                addPrintHeader();
                 exportButtonAdded = true;
                 clearInterval(checkInterval);
             }
@@ -180,9 +254,34 @@
         console.log('[NinjaCat Chat Export] Print styles injected');
     }
 
-    // ---- Print Header (visible only when printing) ----
-    function addPrintHeader() {
-        if (printHeaderAdded) return;
+    // ---- Add Print Enhancements (labels, dividers, header) ----
+    function addPrintEnhancements() {
+        if (printEnhancementsAdded) {
+            // Just update the timestamp
+            updatePrintHeader();
+            return;
+        }
+
+        const messagesContainer = document.querySelector('.conversationMessagesContainer');
+        if (!messagesContainer) {
+            console.log('[NinjaCat Chat Export] No messages container found');
+            return;
+        }
+
+        // Add print header at the very top
+        addPrintHeader(messagesContainer);
+
+        // Add labels and dividers to messages
+        addMessageLabels(messagesContainer);
+
+        printEnhancementsAdded = true;
+        console.log('[NinjaCat Chat Export] Print enhancements added');
+    }
+
+    function addPrintHeader(container) {
+        // Remove existing header if any
+        const existing = document.getElementById('ninjacat-print-header');
+        if (existing) existing.remove();
 
         const agentName = getAgentName();
         const agentDescription = getAgentDescription();
@@ -191,45 +290,104 @@
         const header = document.createElement('div');
         header.id = 'ninjacat-print-header';
         header.innerHTML = `
-            <div style="font-size: 24px; font-weight: 700; color: #111827; margin-bottom: 8px;">
+            <div style="font-size: 28px; font-weight: 700; color: #1E3A8A; margin-bottom: 8px; line-height: 1.2;">
                 ${escapeHTML(agentName)}
             </div>
-            ${agentDescription ? `<div style="font-size: 14px; color: #6B7280; margin-bottom: 8px;">${escapeHTML(agentDescription)}</div>` : ''}
-            <div style="font-size: 12px; color: #9CA3AF;">
-                Exported: ${exportDate}
+            ${agentDescription ? `<div style="font-size: 14px; color: #64748B; margin-bottom: 12px;">${escapeHTML(agentDescription)}</div>` : ''}
+            <div style="font-size: 12px; color: #94A3B8; font-weight: 500;">
+                📅 Exported: ${exportDate}
             </div>
         `;
 
-        // Insert at the top of the chat container
-        const chatContainer = document.querySelector('.conversationMessagesContainer');
-        if (chatContainer) {
-            chatContainer.insertBefore(header, chatContainer.firstChild);
-            printHeaderAdded = true;
-            console.log('[NinjaCat Chat Export] Print header added');
-        }
+        // Insert at the very beginning of the container
+        container.insertBefore(header, container.firstChild);
     }
 
-    // Update print header before printing
     function updatePrintHeader() {
         const header = document.getElementById('ninjacat-print-header');
         if (header) {
             const exportDate = new Date().toLocaleString();
             const dateEl = header.querySelector('div:last-child');
             if (dateEl) {
-                dateEl.textContent = `Exported: ${exportDate}`;
+                dateEl.innerHTML = `📅 Exported: ${exportDate}`;
             }
         }
     }
 
+    function addMessageLabels(container) {
+        const allMessageElements = container.querySelectorAll('[index]');
+        let lastWasUser = null;
+
+        allMessageElements.forEach((el, idx) => {
+            // Skip if already has label
+            if (el.querySelector('.ninjacat-user-label, .ninjacat-agent-label')) return;
+
+            const isUserMessage = el.classList.contains('self-end') || el.closest('.self-end');
+
+            // Add divider between different message types (but not before first message)
+            if (idx > 0 && lastWasUser !== null && lastWasUser !== isUserMessage) {
+                const divider = document.createElement('div');
+                divider.className = 'ninjacat-message-divider';
+                divider.style.cssText = `
+                    height: 1px;
+                    background: #E2E8F0;
+                    margin: 20px 0;
+                    display: none;
+                `;
+                el.parentElement.insertBefore(divider, el);
+            }
+
+            if (isUserMessage) {
+                // Add "You" label before user messages
+                const label = document.createElement('div');
+                label.className = 'ninjacat-user-label';
+                label.style.cssText = `
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: #1E40AF;
+                    margin-bottom: 6px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    display: none;
+                `;
+                label.textContent = '💬 You';
+
+                // Find the message content wrapper
+                const messageWrapper = el.querySelector('.whitespace-pre-wrap');
+                if (messageWrapper && messageWrapper.parentElement) {
+                    messageWrapper.parentElement.insertBefore(label, messageWrapper);
+                }
+            } else {
+                // Add "Agent" label before agent messages
+                const styledMessage = el.querySelector('.styled-chat-message');
+                if (styledMessage && !styledMessage.previousElementSibling?.classList?.contains('ninjacat-agent-label')) {
+                    const label = document.createElement('div');
+                    label.className = 'ninjacat-agent-label';
+                    label.style.cssText = `
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: #047857;
+                        margin-bottom: 6px;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        display: none;
+                    `;
+                    label.textContent = '🤖 Agent';
+                    styledMessage.parentElement.insertBefore(label, styledMessage);
+                }
+            }
+
+            lastWasUser = isUserMessage;
+        });
+    }
+
     // ---- Export Controls ----
     function addExportControls() {
-        // Try multiple selectors for more robust placement
         let insertTarget = document.querySelector('.flex.text-blue-100.items-center.py-\\[15px\\]');
         if (!insertTarget) {
             insertTarget = document.querySelector('#assistants-ui .flex.text-blue-100');
         }
         if (!insertTarget) {
-            // Fallback: find the container and add at top
             insertTarget = document.querySelector('#assistants-ui > div > div');
         }
 
@@ -238,7 +396,6 @@
             return;
         }
 
-        // Create controls container
         const controls = document.createElement('div');
         controls.id = 'ninjacat-export-controls';
         controls.style.cssText = `
@@ -250,7 +407,6 @@
             flex-wrap: wrap;
         `;
 
-        // PDF Export button with hint
         const pdfBtn = createButton(
             '📄 Print PDF',
             'Print to PDF (Ctrl+P, then "Save as PDF")\nTip: Use Expand All first to include all tasks',
@@ -259,7 +415,6 @@
         );
         pdfBtn.id = 'ninjacat-pdf-btn';
 
-        // Markdown Export button
         const mdBtn = createButton(
             '📝 Markdown',
             'Export as Markdown file (Ctrl+Shift+M)',
@@ -268,16 +423,14 @@
         );
         mdBtn.id = 'ninjacat-md-btn';
 
-        // Copy to Clipboard button
         const copyBtn = createButton(
             '📋 Copy',
-            'Copy conversation to clipboard as plain text',
+            'Copy conversation to clipboard as plain text (Ctrl+Shift+C)',
             '#8B5CF6',
             handleCopyToClipboard
         );
         copyBtn.id = 'ninjacat-copy-btn';
 
-        // Expand All button
         const expandBtn = createButton(
             '▼ Expand All',
             'Expand all task sections before export',
@@ -289,7 +442,6 @@
         );
         expandBtn.id = 'ninjacat-expand-btn';
 
-        // Collapse All button
         const collapseBtn = createButton(
             '▲ Collapse All',
             'Collapse all task sections',
@@ -308,7 +460,6 @@
         controls.appendChild(expandBtn);
         controls.appendChild(collapseBtn);
 
-        // Insert after the target element
         insertTarget.parentElement.insertBefore(controls, insertTarget.nextSibling);
         console.log('[NinjaCat Chat Export] Export controls added');
     }
@@ -389,12 +540,10 @@
     // ---- Keyboard Shortcuts ----
     function setupKeyboardShortcuts() {
         document.addEventListener('keydown', (e) => {
-            // Ctrl+Shift+M for Markdown export
             if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') {
                 e.preventDefault();
                 handleMarkdownExport();
             }
-            // Ctrl+Shift+C for Copy to clipboard
             if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') {
                 e.preventDefault();
                 handleCopyToClipboard();
@@ -424,19 +573,19 @@
         return toggledCount;
     }
 
-    // ---- Handlers with Feedback ----
+    // ---- Handlers ----
     function handlePDFExport() {
         const btn = document.getElementById('ninjacat-pdf-btn');
         showButtonLoading(btn, '📄 Preparing...');
 
-        // Update the print header with current timestamp
-        updatePrintHeader();
+        // Add print enhancements (header, labels, dividers)
+        addPrintEnhancements();
 
-        // Small delay to let UI update, then print
+        // Small delay to let DOM update, then print
         setTimeout(() => {
             resetButton(btn);
             window.print();
-        }, 100);
+        }, 150);
     }
 
     function handleMarkdownExport() {
@@ -480,7 +629,7 @@
 
     function getFormattedDate() {
         const now = new Date();
-        return now.toISOString().split('T')[0]; // YYYY-MM-DD
+        return now.toISOString().split('T')[0];
     }
 
     function escapeHTML(str) {
@@ -565,13 +714,13 @@
             if (isUserMessage) {
                 const text = el.querySelector('.whitespace-pre-wrap')?.textContent?.trim() || el.textContent?.trim();
                 if (text) {
-                    markdown += `## You\n\n${text}\n\n`;
+                    markdown += `## 💬 You\n\n${text}\n\n---\n\n`;
                 }
             } else {
                 const styledMessage = el.querySelector('.styled-chat-message') || el;
                 const messageContent = extractMarkdownContent(styledMessage);
                 if (messageContent) {
-                    markdown += `## Agent\n\n${messageContent}\n\n`;
+                    markdown += `## 🤖 Agent\n\n${messageContent}\n\n---\n\n`;
                 }
             }
         });
@@ -579,13 +728,12 @@
         // Capture images
         const images = messagesContainer.querySelectorAll('img[src*="ai-service"]');
         if (images.length > 0) {
-            markdown += `\n---\n\n### Images in conversation\n\n`;
+            markdown += `\n### 🖼️ Images in conversation\n\n`;
             images.forEach((img, i) => {
                 markdown += `![Image ${i + 1}](${img.src})\n\n`;
             });
         }
 
-        // Filename includes date
         const filename = `${sanitizeFilename(agentName)}-${fileDate}-chat.md`;
         downloadFile(filename, markdown, 'text/markdown');
     }
@@ -595,14 +743,15 @@
 
         const clone = element.cloneNode(true);
 
-        // Convert headers
+        // Remove any injected labels
+        clone.querySelectorAll('.ninjacat-agent-label, .ninjacat-user-label').forEach(el => el.remove());
+
         clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {
             const level = parseInt(h.tagName[1]);
             const prefix = '#'.repeat(level + 1);
             h.textContent = `${prefix} ${h.textContent}\n`;
         });
 
-        // Convert code blocks
         clone.querySelectorAll('pre, code').forEach(code => {
             if (code.tagName === 'PRE') {
                 code.textContent = `\n\`\`\`\n${code.textContent}\n\`\`\`\n`;
@@ -611,7 +760,6 @@
             }
         });
 
-        // Convert lists
         clone.querySelectorAll('ul li').forEach(li => {
             li.textContent = `- ${li.textContent}\n`;
         });
@@ -619,17 +767,14 @@
             li.textContent = `${i + 1}. ${li.textContent}\n`;
         });
 
-        // Convert bold/strong
         clone.querySelectorAll('strong, b').forEach(el => {
             el.textContent = `**${el.textContent}**`;
         });
 
-        // Convert italic/em
         clone.querySelectorAll('em, i').forEach(el => {
             el.textContent = `*${el.textContent}*`;
         });
 
-        // Convert links
         clone.querySelectorAll('a').forEach(a => {
             a.textContent = `[${a.textContent}](${a.href})`;
         });
