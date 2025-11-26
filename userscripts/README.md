@@ -4,15 +4,17 @@ Browser userscripts to enhance the NinjaCat experience.
 
 ## Available Scripts
 
-### 1. NinjaCat Seer Agent Tags & Filter (v1.3.0)
+### 1. NinjaCat Seer Agent Tags & Filter (v1.4.0)
 
 **File**: `ninjacat-seer-tags.user.js`
 
 **What it does**:
-- 🏷️ Automatically tags agents with division badges (SEO, PDM, Analytics, Creative, Ops, CE, PM)
+- 🏷️ Automatically tags agents with division badges (SEO, PDM, Analytics, CE, Ops, WIP, DNU, PROD, CLIENT, UTILITY)
 - 📊 Detects data source icons (Google Analytics, GSC, Sheets, Meta Ads, Google Ads) and exposes matching filters
 - 🔍 Provides multi-select filters (Ctrl/Cmd-click) with visual states and Reset button
-- ⚙️ Includes Settings modal for customizing divisions, colors, and keyword patterns
+- ⚙️ **Full division management**: Add, rename, delete, change colors/icons, edit patterns
+- 🏷️ **Manual agent tagging**: Click the tag button on any agent to assign custom divisions
+- 📤 **Import/Export**: Backup and restore your entire configuration including manual tags
 - ⚡ Auto-expands the "Show All" button on page load and re-runs on SPA navigation
 
 **Quick Install**:

@@ -1,5 +1,44 @@
 # Fixes Applied to Original Script
 
+## Version 1.4.0 - Full Division CRUD, Manual Tagging & Import/Export
+
+### New Features
+
+#### 1. Fully Customizable Divisions
+- **Add new divisions**: Click "+ Add Division" button in Settings
+- **Rename divisions**: Edit the name field directly
+- **Change icons**: Select from 20 pre-defined emoji icons
+- **Change colors**: Use the color picker to customize badge colors
+- **Delete divisions**: Click the trash icon to remove any division
+- **Edit patterns**: Modify keyword patterns for auto-detection
+
+#### 2. Manual Agent Tagging
+- **Tag button on every agent**: Click the 🏷️ button next to any agent
+- **Multi-select tags**: Assign multiple divisions to a single agent
+- **Visual indicator**: Manually tagged divisions show with an asterisk (*)
+- **Persistent storage**: Manual tags are saved in localStorage
+- **Override auto-detection**: Manual tags supplement pattern-based tags
+
+#### 3. Import/Export Configuration
+- **Export**: Click "📤 Export" to download your entire configuration as JSON
+  - Includes all division settings (names, colors, icons, patterns)
+  - Includes all manual agent tag assignments
+  - Timestamped filename for easy tracking
+- **Import**: Click "📥 Import" to restore a configuration from JSON
+  - Validates file format before importing
+  - Shows summary of what will be imported
+  - Confirms before overwriting current settings
+
+### Technical Changes
+- New localStorage key: `ninjacat-seer-agent-tags` for manual tag storage
+- `getAgentName()` helper function extracts agent names from rows
+- `openAgentTagModal()` creates the per-agent tagging UI
+- `exportConfig()` and `importConfig()` handle file I/O
+- `renderCategoryList()` generates dynamic division editor UI
+- Settings modal now uses full CRUD pattern for divisions
+
+---
+
 ## Version 1.3.1 - Syntax Error Fix
 
 ### Bug Fix
