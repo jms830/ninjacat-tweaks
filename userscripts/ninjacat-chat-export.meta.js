@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         NinjaCat Chat Export to PDF
+// @name         NinjaCat Chat Export
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Export NinjaCat agent chats to clean PDF format, including tool calls
+// @version      2.0.0
+// @description  Export NinjaCat agent chats to PDF (print) or Markdown, with expand/collapse controls
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents/*/chat/*
 // @match        https://app.mymarketingreports.com/agency/data/agents/*/chat/*
