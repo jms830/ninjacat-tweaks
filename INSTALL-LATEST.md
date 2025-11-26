@@ -1,153 +1,114 @@
-# Install Latest Version - Bypass Cache
+# Install Latest Version
 
-## Current Version: v1.2.0
-
-**The fastest way to get the latest version** is to reinstall from scratch, not use "Check for updates".
+## Current Version: v1.5.0
 
 ---
 
-## ⚡ Quick Install (30 seconds)
+## Quick Install (30 seconds)
 
-### Step 1: Delete Old Version
-1. Open **Tampermonkey Dashboard** (click icon → Dashboard)
-2. Find **"NinjaCat Seer Agent Tags & Filter"**
-3. Click the **trash icon** 🗑️
-4. Confirm deletion
+### Step 1: Install Tampermonkey (if you haven't)
+- [Chrome/Edge](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+- [Firefox](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/)
+- [Safari](https://apps.apple.com/us/app/tampermonkey/id1482490089)
 
-### Step 2: Install Fresh
-**Click this direct link**:
+### Step 2: Install the Script
 
+**Click this link**:
 ```
-https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js?v=1.2.0
+https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
 ```
 
-**Or manually**:
-1. Copy the URL above
-2. Paste in browser address bar
-3. Press Enter
-4. Tampermonkey install dialog appears
-5. Click **"Install"**
+Tampermonkey will open. Click **Install**.
 
 ### Step 3: Verify
-Open the script in Tampermonkey and check line 4:
-```javascript
-// @version      1.2.0
+
+1. Go to https://app.ninjacat.io/agency/data/agents
+2. You should see a filter bar below "All Agents"
+3. Open Console (F12) and look for: `[NinjaCat Seer Tags] Script loaded v1.5.0`
+
+---
+
+## Updating from an Older Version
+
+If you have an older version installed:
+
+### Method 1: Reinstall (Recommended)
+1. Open Tampermonkey Dashboard
+2. Delete "NinjaCat Seer Agent Tags & Filter"
+3. Install fresh from the link above
+
+### Method 2: Force Update
+Add a cache-busting parameter:
+```
+https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js?v=1.5.0
 ```
 
-Should say **1.2.0**, not 1.0.0 or 1.1.0
+---
+
+## What's New in v1.5.0
+
+- **Filter count**: "Showing X of Y agents"
+- **Untagged filter**: Find agents with no tags
+- **Team sharing**: Share config via code or file
+- **Add pattern button**: Quickly improve auto-detection
+- **Customizable data sources**: Full CRUD like filters
+- **Drag-drop reorder**: Organize your filters
+- **Persistent filters**: Survives page refresh
+- **Keyboard shortcuts**: Esc closes modals
+- **Settings search**: Find filters quickly
+- **Delete warnings**: Warns if agents use the tag
 
 ---
 
-## 🐛 Why "Check for Updates" Doesn't Work
+## Troubleshooting
 
-**Technical Issue**: GitHub caches raw files for 5 minutes
-- When Tampermonkey checks for updates, it gets the cached old version
-- Even after we push new code, GitHub serves stale cache
-- The cache header: `cache-control: max-age=300` (5 minutes)
+### "I still see an old version"
 
-**Tampermonkey Issue**: Only checks every 24 hours
-- Manual "Check for updates" still hits the cache
-- No way to force cache bypass in Tampermonkey
+1. Check version in Tampermonkey: Dashboard → Edit script → Line 4
+2. Should say `// @version 1.5.0`
+3. If not, delete and reinstall
 
-**Solution**: Direct reinstall bypasses the update mechanism entirely
+### "Script doesn't run"
 
----
+1. Is Tampermonkey enabled? (Click icon, check toggle)
+2. Is the script enabled? (Dashboard, check toggle)
+3. Are you on the right URL? Must be `app.ninjacat.io/agency/data/agents*`
 
-## 📋 What You Should See After Install
+### "Filter bar doesn't appear"
 
-**In Console** (F12):
-```
-[NinjaCat Seer Tags] Script loaded v1.2.0
-```
-
-**On Agents Page**:
-- Filter bar appears **below "All Agents" header** (not top right)
-- Buttons are compact with gray background
-- Clicking filters **actually filters agents**
-- Settings has **Select All/Deselect All** buttons
-- Settings has **pattern editing textareas**
+1. Wait 2-3 seconds (script waits for page to load)
+2. Open Console (F12) - any errors?
+3. Try hard refresh: Ctrl+Shift+R
 
 ---
 
-## ✅ Quick Test
+## Manual Install (Always Works)
 
-After installing v1.2.0:
-
-1. **Navigate to**: https://app.ninjacat.io/agency/data/agents
-2. **Look for filter bar** below "All Agents"
-3. **Click PDM button** - should filter to only PDM agents
-4. **Open Console** (F12) - should show "Button clicked: PDM"
-5. **Click Settings** - should see pattern textareas
-6. **Click Select All** - all checkboxes should enable
-
-If any of these fail, you're still on an old version.
-
----
-
-## 🔍 Troubleshooting
-
-### "I installed but still see v1.0.0"
-
-**Browser cached the raw file too**:
-1. Add `?nocache=1` to the install URL:
-   ```
-   https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js?nocache=1
-   ```
-2. Or use the manual method below
-
-### Manual Install (Always Works)
+If the automatic install doesn't work:
 
 1. Go to: https://github.com/jms830/ninjacat-tweaks/blob/master/userscripts/ninjacat-seer-tags.user.js
-2. Click **"Raw"** button (top right)
-3. **Select all** (Ctrl+A)
-4. **Copy** (Ctrl+C)
-5. **Tampermonkey Dashboard** → + Create new script
-6. **Select all** in editor (Ctrl+A)
-7. **Paste** (Ctrl+V)
-8. **Save** (Ctrl+S)
-9. Delete the old version if it exists
-
-### "Filter bar still off-screen"
-
-You have the old version. Verify:
-```javascript
-// Line 4 should say:
-// @version      1.2.0
-```
-
-If it says 1.0.0 or 1.1.0, reinstall using manual method above.
+2. Click **Raw** button
+3. Select All (Ctrl+A), Copy (Ctrl+C)
+4. Tampermonkey Dashboard → Create new script (+)
+5. Select All (Ctrl+A), Paste (Ctrl+V)
+6. Save (Ctrl+S)
 
 ---
 
-## 🎯 Version History
+## Version History
 
-- **v1.0.0**: Initial release with basic filters
-- **v1.1.0**: Added Settings modal (but had issues)
-- **v1.2.0**: ✅ FIXED - Proper positioning, working filters, pattern editing
-
-Make sure you're on **v1.2.0**!
-
----
-
-## 💡 Pro Tip
-
-**Bookmark this URL for future updates**:
-```
-https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js?t=[TIMESTAMP]
-```
-
-Adding `?t=123456` forces cache bypass. Change the timestamp each time.
+| Version | Key Features |
+|---------|--------------|
+| v1.5.0 | Team sharing, untagged filter, drag-drop, filter count |
+| v1.4.0 | Manual tagging, import/export, full CRUD |
+| v1.3.0 | Data source filters, multi-select |
+| v1.2.0 | Settings modal, pattern editing |
+| v1.0.0 | Initial release |
 
 ---
 
-## 📞 Still Having Issues?
+## Need Help?
 
-1. **Check current version**: Tampermonkey → Edit script → Line 4
-2. **Check console**: F12 → Console → Look for version number
-3. **Hard refresh page**: Ctrl+Shift+R
-4. **Try incognito mode**: Rules out all cache issues
-
-If you're 100% sure you have v1.2.0 installed but features aren't working:
-- Send me the **console output** (F12 → Console → Copy all)
-- Send **screenshot** of filter bar location
-- Tell me what **specific feature** isn't working
+1. Check the [full documentation](userscripts/README.md)
+2. Open Console (F12) and share any errors
+3. Create an issue on GitHub
