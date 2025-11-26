@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
+// @version      1.2.2
 // @description  Seer division tags, filtering, and auto-expand for NinjaCat agents with customizable categories
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.2.1');
+    console.log('[NinjaCat Seer Tags] Script loaded v1.2.2');
 
     // ---- Configuration Management ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -85,6 +85,9 @@
 
     // Remember which selector is currently being used for rows
     let activeRowSelector = null;
+
+    // Track currently selected filters
+    let activeFilters = [];
 
     // ---- Utility: Locate agent rows ----
     function getAgentRows(log = true) {
@@ -212,6 +215,11 @@
                     console.error(`[NinjaCat Seer Tags] Error tagging card ${index}:`, cardError);
                 }
             });
+
+            if (activeFilters.length > 0) {
+                console.log('[NinjaCat Seer Tags] Re-applying active filters after tagging');
+                applyFilters();
+            }
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in tagAgentCards:', error);
         }
@@ -264,8 +272,9 @@
                 btn.onclick = function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    console.log('[NinjaCat Seer Tags] Button clicked:', tag.name);
-                    filterByTag(tag.name);
+                    const multiSelect = e.ctrlKey || e.metaKey || e.shiftKey;
+                    console.log('[NinjaCat Seer Tags] Button clicked:', tag.name, multiSelect ? '(multi-select)' : '');
+                    handleFilterSelection(tag.name, multiSelect);
                 };
                 
                 bar.appendChild(btn);
@@ -296,7 +305,7 @@
                 e.preventDefault();
                 e.stopPropagation();
                 console.log('[NinjaCat Seer Tags] Reset clicked');
-                filterByTag(null);
+                handleFilterSelection(null, false, true);
             };
             bar.appendChild(reset);
 
@@ -390,10 +399,40 @@
         }
     }
 
-    // ---- Filtering logic ----
-    function filterByTag(tagName) {
+    // ---- Filter handling ----
+    function handleFilterSelection(tagName, multiSelect = false, forceReset = false) {
         try {
-            console.log(`[NinjaCat Seer Tags] Filtering by: ${tagName || 'Reset'}`);
+            if (forceReset || tagName === null) {
+                console.log('[NinjaCat Seer Tags] Clearing all filters');
+                activeFilters = [];
+                return applyFilters();
+            }
+
+            if (multiSelect) {
+                if (activeFilters.includes(tagName)) {
+                    activeFilters = activeFilters.filter(tag => tag !== tagName);
+                } else {
+                    activeFilters = [...activeFilters, tagName];
+                }
+            } else {
+                if (activeFilters.length === 1 && activeFilters[0] === tagName) {
+                    activeFilters = [];
+                } else {
+                    activeFilters = [tagName];
+                }
+            }
+
+            console.log('[NinjaCat Seer Tags] Active filters:', activeFilters.join(', ') || 'none');
+            applyFilters();
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error handling filter selection:', error);
+        }
+    }
+
+    function applyFilters() {
+        try {
+            const activeList = activeFilters.slice();
+            console.log(`[NinjaCat Seer Tags] Applying filters: ${activeList.join(', ') || 'none (show all)'}`);
             
             const agentCards = getAgentRows(false);
             console.log(`[NinjaCat Seer Tags] Found ${agentCards.length} agent cards to filter`);
@@ -403,54 +442,55 @@
                 try {
                     const tagsAttr = card.getAttribute('data-seer-tags') || '';
                     const tags = tagsAttr.split(',').map(t => t.trim()).filter(t => t);
-                    
-                    // Show if no filter OR tag matches
-                    const shouldShow = !tagName || tags.includes(tagName);
                     const originalDisplay = card.dataset.originalDisplay || '';
                     
+                    const shouldShow = activeList.length === 0 || activeList.some(tag => tags.includes(tag));
                     if (shouldShow) {
                         card.style.display = originalDisplay || (card.tagName === 'TR' ? 'table-row' : '');
                         visibleCount++;
                     } else {
                         card.style.display = 'none';
                     }
-                    
-                    console.log(`[NinjaCat Seer Tags] Card tags: [${tags.join(', ')}], Show: ${shouldShow}`);
                 } catch (cardError) {
                     console.error('[NinjaCat Seer Tags] Error filtering card:', cardError);
                 }
             });
 
             console.log(`[NinjaCat Seer Tags] Filtering complete: ${visibleCount}/${agentCards.length} visible`);
-
-            // Update button styling
-            const filterBtns = document.querySelectorAll('.seer-filter-btn');
-            const resetBtn = document.querySelector('.seer-reset-btn');
-            
-            filterBtns.forEach(btn => {
-                const btnTag = btn.getAttribute('data-tag');
-                const btnColor = btn.getAttribute('data-color');
-                
-                if (tagName && btnTag === tagName) {
-                    btn.style.boxShadow = '0 0 0 3px #000';
-                    btn.style.transform = 'scale(1.05)';
-                } else {
-                    btn.style.boxShadow = '';
-                    btn.style.transform = 'scale(1)';
-                }
-            });
-
-            if (resetBtn) {
-                if (!tagName) {
-                    resetBtn.style.boxShadow = '0 0 0 2px #3B82F6';
-                    resetBtn.style.background = '#D1D5DB';
-                } else {
-                    resetBtn.style.boxShadow = '';
-                    resetBtn.style.background = '#E5E7EB';
-                }
-            }
+            updateButtonStates();
         } catch (error) {
-            console.error('[NinjaCat Seer Tags] Error in filterByTag:', error);
+            console.error('[NinjaCat Seer Tags] Error applying filters:', error);
+        }
+    }
+
+    function updateButtonStates() {
+        const filterBtns = document.querySelectorAll('.seer-filter-btn');
+        const resetBtn = document.querySelector('.seer-reset-btn');
+        const activeSet = new Set(activeFilters);
+
+        filterBtns.forEach(btn => {
+            const btnTag = btn.getAttribute('data-tag');
+            const btnColor = btn.getAttribute('data-color');
+
+            if (activeSet.has(btnTag)) {
+                btn.style.boxShadow = '0 0 0 3px #111827';
+                btn.style.transform = 'scale(1.05)';
+                btn.style.opacity = '1';
+            } else {
+                btn.style.boxShadow = '';
+                btn.style.transform = 'scale(1)';
+                btn.style.opacity = activeSet.size === 0 ? '1' : '0.7';
+            }
+        });
+
+        if (resetBtn) {
+            if (activeFilters.length === 0) {
+                resetBtn.style.boxShadow = '0 0 0 2px #3B82F6';
+                resetBtn.style.background = '#D1D5DB';
+            } else {
+                resetBtn.style.boxShadow = '';
+                resetBtn.style.background = '#E5E7EB';
+            }
         }
     }
 
