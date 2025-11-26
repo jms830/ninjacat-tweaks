@@ -1,11 +1,80 @@
 # Fixes Applied to Original Script
 
+## Version 1.5.0 - Major UX Overhaul & Team Sharing
+
+### New Features
+
+#### 1. Filter Count Display
+- Shows "Showing X of Y agents" when filters are active
+- Shows total agent count when no filters applied
+- Updates dynamically as you filter
+
+#### 2. Keyboard Shortcuts
+- **Esc** closes any open modal (settings, tag, share, suggest pattern)
+
+#### 3. Persistent Filter State
+- Active filters survive page navigation and refresh
+- Stored in localStorage key `ninjacat-seer-filter-state`
+
+#### 4. "Untagged" Filter
+- New "❓ Untagged" button to find agents with no tags
+- Helps identify agents that need categorization
+
+#### 5. Improved Manual Tag Indicator
+- Manual tags now show with a **dashed border** instead of asterisk
+- More visually distinct and professional
+
+#### 6. Drag-and-Drop Reordering
+- Drag filters and data sources to reorder them in Settings
+- Order persists and reflects in the filter bar
+
+#### 7. Search in Settings
+- Search box to quickly find filters by name or pattern
+- Helpful when you have many custom filters
+
+#### 8. Delete Confirmation with Impact Warning
+- When deleting a filter, shows how many agents have it manually assigned
+- Prevents accidental loss of tagging work
+
+#### 9. Customizable Data Sources
+- Data sources are now fully customizable like filters
+- Add, edit, delete, reorder, change icons/colors/patterns
+- Separate tab in Settings modal
+
+#### 10. Quick "Add Pattern" Button (➕)
+- New ➕ button on every agent row
+- Click to suggest a pattern that would auto-tag that agent
+- Shows keyword suggestions extracted from agent name
+- Select which filter to add the pattern to
+
+#### 11. Team Sharing via Share Code
+- New "🔗 Share" button in filter bar
+- **Export share code**: Base64-encoded config for easy copy/paste
+- **Import from code**: Paste a teammate's code to sync settings
+- **File export/import**: Also available for larger configs
+- Includes filters, data sources, AND manual agent tags
+
+### UX Improvements
+- Cleaner settings UI with tabs (Filters / Data Sources)
+- Better hint text in filter bar
+- Consistent button styling throughout
+- 30 emoji icons to choose from (up from 20)
+
+### Technical Changes
+- New storage keys: `ninjacat-seer-filter-state`, `ninjacat-seer-data-sources`
+- `order` property on categories and sources for drag-drop
+- `getSortedCategories()` and `getSortedDataSources()` helpers
+- Share code uses `btoa()`/`atob()` for encoding
+- Modular `createSettingsItem()` for both filters and sources
+
+---
+
 ## Version 1.4.0 - Full Division CRUD, Manual Tagging & Import/Export
 
 ### New Features
 
 #### 1. Fully Customizable Divisions
-- **Add new divisions**: Click "+ Add Division" button in Settings
+- **Add new filters**: Click "+ Add Filter" button in Settings
 - **Rename divisions**: Edit the name field directly
 - **Change icons**: Select from 20 pre-defined emoji icons
 - **Change colors**: Use the color picker to customize badge colors

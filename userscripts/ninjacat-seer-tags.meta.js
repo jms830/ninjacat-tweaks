@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
-// @description  Seer division tags, filtering, and auto-expand for NinjaCat agents with customizable categories, data sources, manual tagging, and import/export
+// @version      1.5.0
+// @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
 // @match        https://app.mymarketingreports.com/agency/data/agents*
