@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
+// @version      1.5.2
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -16,7 +16,16 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.5.1');
+    // Only run on the agents LIST page, not on individual agent/chat pages
+    // Chat URLs look like: /agents/UUID/chat/UUID
+    // List URL looks like: /agents or /agents?query=...
+    const path = window.location.pathname;
+    if (path.includes('/chat/') || /\/agents\/[a-f0-9-]{36}/i.test(path)) {
+        console.log('[NinjaCat Seer Tags] Skipping - this is a chat/agent detail page');
+        return;
+    }
+
+    console.log('[NinjaCat Seer Tags] Script loaded v1.5.2');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
