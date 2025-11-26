@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.2.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v1.2.1');
 
     // ---- Configuration Management ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
