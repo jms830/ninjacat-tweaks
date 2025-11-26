@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
+// @version      1.5.1
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.5.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v1.5.1');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -703,7 +703,7 @@
         row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap;';
 
         const hint = document.createElement('span');
-        hint.textContent = 'Ctrl/Cmd+click to multi-select • 🏷️ to tag • ➕ to add pattern • Esc closes modals';
+        hint.textContent = 'Ctrl/Cmd+click to multi-select • 🏷️ tag agent • ➕ add pattern • Esc closes modals';
         hint.style.cssText = 'font-size:11px;color:#6B7280;flex:1;min-width:200px;';
 
         const resetBtn = document.createElement('button');
@@ -719,15 +719,6 @@
             applyFilters();
         };
 
-        const shareBtn = document.createElement('button');
-        shareBtn.innerHTML = '🔗 Share';
-        shareBtn.style.cssText = 'background:#8B5CF6;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;';
-        shareBtn.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openShareModal();
-        };
-
         const settingsBtn = document.createElement('button');
         settingsBtn.innerHTML = '⚙️ Settings';
         settingsBtn.style.cssText = 'background:#4B5563;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;';
@@ -739,7 +730,6 @@
 
         row.appendChild(hint);
         row.appendChild(resetBtn);
-        row.appendChild(shareBtn);
         row.appendChild(settingsBtn);
         return row;
     }
@@ -860,102 +850,7 @@
         }
     }
 
-    // ---- Share Modal ----
-    function openShareModal() {
-        try {
-            document.getElementById('seer-share-modal')?.remove();
-
-            const overlay = document.createElement('div');
-            overlay.id = 'seer-share-modal';
-            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10001;';
-
-            // Generate share code
-            const shareData = {
-                v: '1.5.0',
-                c: config,
-                d: dataSources,
-                t: agentTags
-            };
-            const shareCode = btoa(JSON.stringify(shareData));
-
-            const modal = document.createElement('div');
-            modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto;';
-            
-            modal.innerHTML = `
-                <h2 style="margin:0 0 8px 0;font-size:20px;font-weight:700;">🔗 Share Configuration</h2>
-                <p style="margin:0 0 16px 0;color:#6B7280;font-size:14px;">Share your filters with teammates or sync across browsers.</p>
-                
-                <div style="margin-bottom:16px;">
-                    <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#6B7280;">Your share code:</label>
-                    <textarea id="seer-share-code" readonly style="width:100%;height:80px;padding:10px;border:1px solid #D1D5DB;border-radius:6px;font-family:monospace;font-size:11px;box-sizing:border-box;resize:none;">${shareCode}</textarea>
-                    <button id="seer-copy-code" style="margin-top:8px;background:#3B82F6;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">📋 Copy to Clipboard</button>
-                </div>
-                
-                <div style="border-top:1px solid #E5E7EB;padding-top:16px;margin-bottom:16px;">
-                    <label style="display:block;margin-bottom:4px;font-size:12px;font-weight:600;color:#6B7280;">Import from code:</label>
-                    <textarea id="seer-import-code" placeholder="Paste a share code here..." style="width:100%;height:80px;padding:10px;border:1px solid #D1D5DB;border-radius:6px;font-family:monospace;font-size:11px;box-sizing:border-box;resize:none;"></textarea>
-                    <button id="seer-import-code-btn" style="margin-top:8px;background:#10B981;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">📥 Import from Code</button>
-                </div>
-                
-                <div style="display:flex;gap:12px;">
-                    <button id="seer-export-file" style="flex:1;background:#6B7280;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">💾 Export as File</button>
-                    <button id="seer-import-file" style="flex:1;background:#6B7280;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">📂 Import from File</button>
-                    <button id="seer-close-share" style="flex:1;background:#E5E7EB;color:#111;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">✕ Close</button>
-                </div>
-            `;
-
-            modal.querySelector('#seer-copy-code').onclick = () => {
-                navigator.clipboard.writeText(shareCode).then(() => {
-                    alert('Share code copied to clipboard!');
-                }).catch(() => {
-                    modal.querySelector('#seer-share-code').select();
-                    document.execCommand('copy');
-                    alert('Share code copied!');
-                });
-            };
-
-            modal.querySelector('#seer-import-code-btn').onclick = () => {
-                const code = modal.querySelector('#seer-import-code').value.trim();
-                if (!code) {
-                    alert('Please paste a share code first.');
-                    return;
-                }
-                try {
-                    const data = JSON.parse(atob(code));
-                    if (!data.c || !data.c.categories) throw new Error('Invalid format');
-                    
-                    const catCount = Object.keys(data.c.categories).length;
-                    const srcCount = Object.keys(data.d || {}).length;
-                    const tagCount = Object.keys(data.t || {}).length;
-                    
-                    if (confirm(`Import configuration?\n\n• ${catCount} filters\n• ${srcCount} data sources\n• ${tagCount} agent tags\n\nThis will replace your current settings.`)) {
-                        config = data.c;
-                        dataSources = data.d || DEFAULT_DATA_SOURCES;
-                        agentTags = data.t || {};
-                        saveConfig(config);
-                        saveDataSources(dataSources);
-                        saveAgentTags(agentTags);
-                        overlay.remove();
-                        refreshPage();
-                        alert('Configuration imported!');
-                    }
-                } catch (e) {
-                    alert('Invalid share code. Please check and try again.');
-                }
-            };
-
-            modal.querySelector('#seer-export-file').onclick = () => exportConfigToFile();
-            modal.querySelector('#seer-import-file').onclick = () => importConfigFromFile(overlay);
-            modal.querySelector('#seer-close-share').onclick = () => overlay.remove();
-            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-
-            overlay.appendChild(modal);
-            document.body.appendChild(overlay);
-        } catch (error) {
-            console.error('[NinjaCat Seer Tags] Error opening share modal:', error);
-        }
-    }
-
+    // ---- Import/Export ----
     function exportConfigToFile() {
         try {
             const exportData = {
@@ -1071,10 +966,15 @@
                     <div id="seer-source-list"></div>
                 </div>
                 
-                <div style="padding-top:16px;border-top:1px solid #E5E7EB;display:flex;gap:12px;flex-wrap:wrap;">
+                <div style="padding-top:16px;border-top:1px solid #E5E7EB;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
                     <button id="seer-save-settings" style="flex:1;min-width:120px;background:#3B82F6;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">💾 Save</button>
                     <button id="seer-reset-defaults" style="flex:1;min-width:120px;background:#EF4444;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">↺ Reset All</button>
                     <button id="seer-cancel-settings" style="flex:1;min-width:120px;background:#E5E7EB;color:#111;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">✕ Cancel</button>
+                </div>
+                
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <button id="seer-export-config" style="flex:1;min-width:120px;background:#8B5CF6;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">📤 Export Config</button>
+                    <button id="seer-import-config" style="flex:1;min-width:120px;background:#8B5CF6;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">📥 Import Config</button>
                 </div>
             `;
 
@@ -1153,6 +1053,10 @@
 
             modal.querySelector('#seer-cancel-settings').onclick = () => overlay.remove();
             overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+            // Export/Import
+            modal.querySelector('#seer-export-config').onclick = () => exportConfigToFile();
+            modal.querySelector('#seer-import-config').onclick = () => importConfigFromFile(overlay);
 
             overlay.appendChild(modal);
             document.body.appendChild(overlay);
