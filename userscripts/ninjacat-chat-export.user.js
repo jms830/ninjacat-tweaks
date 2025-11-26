@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat Export
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
+// @version      2.0.1
 // @description  Export NinjaCat agent chats to PDF (print) or Markdown, with expand/collapse controls
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents/*/chat/*
@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Chat Export] Script loaded v2.0.0');
+    console.log('[NinjaCat Chat Export] Script loaded v2.0.1');
 
     let exportButtonAdded = false;
 
@@ -48,11 +48,24 @@
             .flex.h-screen.ml-auto.w-\\[95\\%\\] {
                 width: 100% !important;
                 margin-left: 0 !important;
+                height: auto !important;
+                max-height: none !important;
             }
 
             .max-h-screen.flex.flex-col.flex-grow {
                 padding: 0 !important;
                 max-width: 100% !important;
+                max-height: none !important;
+                height: auto !important;
+            }
+
+            /* CRITICAL: Remove scroll constraints to show full chat */
+            .overflow-y-auto,
+            .overflow-auto,
+            .conversationMessagesContainer {
+                overflow: visible !important;
+                max-height: none !important;
+                height: auto !important;
             }
 
             .conversationMessagesContainer {
@@ -62,6 +75,25 @@
 
             .max-w-\\[840px\\] {
                 max-width: 100% !important;
+            }
+
+            /* Remove h-screen constraints */
+            .h-screen {
+                height: auto !important;
+                max-height: none !important;
+            }
+
+            /* Ensure flex containers don't constrain height */
+            .flex-grow {
+                flex-grow: 0 !important;
+            }
+
+            #assistants-ui,
+            #assistants-ui > div,
+            #assistants-ui .flex {
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
             }
 
             /* Ensure images print properly */
