@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Seer division tags, filtering, and auto-expand for NinjaCat agents with customizable categories
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.1.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v1.2.0');
 
     // ---- Configuration Management ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -62,7 +62,7 @@
             console.error('[NinjaCat Seer Tags] Error loading config:', error);
         }
         console.log('[NinjaCat Seer Tags] Using default configuration');
-        return DEFAULT_CONFIG;
+        return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
     }
 
     // Save configuration to localStorage
@@ -184,7 +184,7 @@
 
             const bar = document.createElement('div');
             bar.id = 'seer-tag-bar';
-            bar.style.cssText = 'display:flex;gap:12px;margin:18px 0 12px 0;flex-wrap:wrap;align-items:center;';
+            bar.style.cssText = 'display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;padding:12px;background:#F9FAFB;border-radius:8px;border:1px solid #E5E7EB;';
 
             // Create buttons for each enabled category
             Object.entries(config.categories).forEach(([key, tag]) => {
@@ -192,27 +192,68 @@
                 
                 const btn = document.createElement('button');
                 btn.innerHTML = `${tag.icon} ${tag.name}`;
+                btn.className = 'seer-filter-btn';
                 btn.style.cssText = `
                     background:${tag.color};
                     color:#fff;
                     border:none;
-                    border-radius:9px;
-                    padding:7px 15px;
-                    font-size:15px;
+                    border-radius:6px;
+                    padding:6px 12px;
+                    font-size:13px;
                     font-weight:600;
-                    letter-spacing:0.5px;
                     cursor:pointer;
-                    transition:background 0.2s;
+                    transition:all 0.2s;
                 `;
                 btn.setAttribute('data-tag', tag.name);
+                btn.setAttribute('data-color', tag.color);
                 
                 // Hover effects
-                btn.onmouseenter = () => btn.style.background = darkenColor(tag.color, 0.85);
-                btn.onmouseleave = () => btn.style.background = tag.color;
-                btn.onclick = () => filterByTag(tag.name);
+                btn.onmouseenter = function() {
+                    this.style.background = darkenColor(tag.color, 0.85);
+                    this.style.transform = 'scale(1.05)';
+                };
+                btn.onmouseleave = function() {
+                    this.style.background = tag.color;
+                    this.style.transform = 'scale(1)';
+                };
+                btn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('[NinjaCat Seer Tags] Button clicked:', tag.name);
+                    filterByTag(tag.name);
+                };
                 
                 bar.appendChild(btn);
             });
+
+            // Reset button
+            const reset = document.createElement('button');
+            reset.textContent = '↺ Reset';
+            reset.className = 'seer-reset-btn';
+            reset.style.cssText = `
+                background:#E5E7EB;
+                color:#374151;
+                border:none;
+                border-radius:6px;
+                padding:6px 12px;
+                font-size:13px;
+                font-weight:600;
+                cursor:pointer;
+                transition:all 0.2s;
+            `;
+            reset.onmouseenter = function() {
+                this.style.background = '#D1D5DB';
+            };
+            reset.onmouseleave = function() {
+                this.style.background = '#E5E7EB';
+            };
+            reset.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('[NinjaCat Seer Tags] Reset clicked');
+                filterByTag(null);
+            };
+            bar.appendChild(reset);
 
             // Settings button
             const settingsBtn = document.createElement('button');
@@ -222,41 +263,82 @@
                 background:#4B5563;
                 color:#fff;
                 border:none;
-                border-radius:7px;
-                padding:7px 16px;
-                font-size:15px;
+                border-radius:6px;
+                padding:6px 12px;
+                font-size:13px;
                 font-weight:600;
                 cursor:pointer;
+                transition:all 0.2s;
             `;
-            settingsBtn.onclick = openSettingsModal;
+            settingsBtn.onmouseenter = function() {
+                this.style.background = '#374151';
+            };
+            settingsBtn.onmouseleave = function() {
+                this.style.background = '#4B5563';
+            };
+            settingsBtn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                openSettingsModal();
+            };
             bar.appendChild(settingsBtn);
 
-            // Reset button
-            const reset = document.createElement('button');
-            reset.textContent = 'Reset';
-            reset.style.cssText = `
-                margin-left:12px;
-                background:#E5E7EB;
-                color:#111;
-                border:none;
-                border-radius:7px;
-                padding:7px 16px;
-                font-size:15px;
-                font-weight:600;
-                cursor:pointer;
-            `;
-            reset.onclick = () => filterByTag(null);
-            bar.appendChild(reset);
+            // Try multiple insertion strategies to find the best spot
+            let inserted = false;
 
-            // Insert filter bar above agent list
-            const main = document.querySelector('.flex.flex-col.gap-4');
-            if (main && main.parentNode) {
-                main.parentNode.insertBefore(bar, main);
-                console.log('[NinjaCat Seer Tags] Filter bar inserted');
-            } else {
-                // Fallback: insert at beginning of body
-                console.log('[NinjaCat Seer Tags] Main container not found, using fallback insertion');
-                document.body.insertBefore(bar, document.body.firstChild);
+            // Strategy 1: Find "All Agents" section header
+            const allAgentsHeader = Array.from(document.querySelectorAll('h2, h3, div')).find(el => 
+                el.textContent.trim() === 'All Agents'
+            );
+            
+            if (allAgentsHeader && allAgentsHeader.parentElement) {
+                console.log('[NinjaCat Seer Tags] Found All Agents header, inserting after it');
+                allAgentsHeader.parentElement.insertBefore(bar, allAgentsHeader.nextSibling);
+                inserted = true;
+            }
+
+            // Strategy 2: Find search input and insert after its container
+            if (!inserted) {
+                const searchInput = document.querySelector('input[type="search"], input[placeholder*="Search"]');
+                if (searchInput) {
+                    // Find the parent container (usually a few levels up)
+                    let container = searchInput.parentElement;
+                    while (container && !container.classList.contains('flex') && container.parentElement) {
+                        container = container.parentElement;
+                        if (container.tagName === 'DIV' && container.classList.length > 2) break;
+                    }
+                    if (container && container.parentElement) {
+                        console.log('[NinjaCat Seer Tags] Found search container, inserting after it');
+                        container.parentElement.insertBefore(bar, container.nextSibling);
+                        inserted = true;
+                    }
+                }
+            }
+
+            // Strategy 3: Look for the main content area with flex layout
+            if (!inserted) {
+                const main = document.querySelector('.flex.flex-col.gap-4');
+                if (main && main.parentNode) {
+                    console.log('[NinjaCat Seer Tags] Found main flex container, inserting before it');
+                    main.parentNode.insertBefore(bar, main);
+                    inserted = true;
+                }
+            }
+
+            // Fallback: Insert near the top of the content area
+            if (!inserted) {
+                console.log('[NinjaCat Seer Tags] Using fallback insertion');
+                const contentArea = document.querySelector('main, [role="main"], .content');
+                if (contentArea && contentArea.firstChild) {
+                    contentArea.insertBefore(bar, contentArea.firstChild);
+                    inserted = true;
+                } else {
+                    document.body.insertBefore(bar, document.body.firstChild);
+                }
+            }
+
+            if (inserted) {
+                console.log('[NinjaCat Seer Tags] Filter bar inserted successfully');
             }
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in addTagFilterBar:', error);
@@ -269,32 +351,53 @@
             console.log(`[NinjaCat Seer Tags] Filtering by: ${tagName || 'Reset'}`);
             
             const agentCards = document.querySelectorAll('[data-automation-id^="data-table-row"]');
+            console.log(`[NinjaCat Seer Tags] Found ${agentCards.length} agent cards to filter`);
             
+            let visibleCount = 0;
             agentCards.forEach(card => {
                 try {
                     const tagsAttr = card.getAttribute('data-seer-tags') || '';
-                    const tags = tagsAttr.split(',').filter(t => t.trim());
+                    const tags = tagsAttr.split(',').map(t => t.trim()).filter(t => t);
                     
                     // Show if no filter OR tag matches
                     const shouldShow = !tagName || tags.includes(tagName);
                     card.style.display = shouldShow ? '' : 'none';
+                    
+                    if (shouldShow) visibleCount++;
+                    
+                    console.log(`[NinjaCat Seer Tags] Card tags: [${tags.join(', ')}], Show: ${shouldShow}`);
                 } catch (cardError) {
                     console.error('[NinjaCat Seer Tags] Error filtering card:', cardError);
                 }
             });
 
+            console.log(`[NinjaCat Seer Tags] Filtering complete: ${visibleCount}/${agentCards.length} visible`);
+
             // Update button styling
-            const bar = document.getElementById('seer-tag-bar');
-            if (bar) {
-                Array.from(bar.querySelectorAll('button')).forEach(btn => {
-                    if (!tagName && btn.textContent === 'Reset') {
-                        btn.style.boxShadow = '0 0 0 2px #3B82F6';
-                    } else if (tagName && btn.textContent.includes(tagName)) {
-                        btn.style.boxShadow = '0 0 0 3px #000';
-                    } else {
-                        btn.style.boxShadow = '';
-                    }
-                });
+            const filterBtns = document.querySelectorAll('.seer-filter-btn');
+            const resetBtn = document.querySelector('.seer-reset-btn');
+            
+            filterBtns.forEach(btn => {
+                const btnTag = btn.getAttribute('data-tag');
+                const btnColor = btn.getAttribute('data-color');
+                
+                if (tagName && btnTag === tagName) {
+                    btn.style.boxShadow = '0 0 0 3px #000';
+                    btn.style.transform = 'scale(1.05)';
+                } else {
+                    btn.style.boxShadow = '';
+                    btn.style.transform = 'scale(1)';
+                }
+            });
+
+            if (resetBtn) {
+                if (!tagName) {
+                    resetBtn.style.boxShadow = '0 0 0 2px #3B82F6';
+                    resetBtn.style.background = '#D1D5DB';
+                } else {
+                    resetBtn.style.boxShadow = '';
+                    resetBtn.style.background = '#E5E7EB';
+                }
             }
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in filterByTag:', error);
@@ -332,28 +435,38 @@
                 background: white;
                 border-radius: 12px;
                 padding: 24px;
-                max-width: 600px;
-                max-height: 80vh;
+                max-width: 800px;
+                width: 90%;
+                max-height: 85vh;
                 overflow-y: auto;
                 box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
             `;
 
             // Modal HTML
             modal.innerHTML = `
-                <h2 style="margin:0 0 16px 0; font-size:24px; font-weight:700;">⚙️ Category Settings</h2>
-                <p style="margin:0 0 24px 0; color:#6B7280;">Toggle categories, customize colors, and manage patterns</p>
+                <h2 style="margin:0 0 8px 0; font-size:24px; font-weight:700;">⚙️ Category Settings</h2>
+                <p style="margin:0 0 16px 0; color:#6B7280;">Toggle categories, customize colors, and manage keyword patterns</p>
                 
-                <div id="seer-category-list"></div>
+                <div style="margin-bottom:16px; display:flex; gap:8px;">
+                    <button id="seer-select-all" style="flex:1; background:#10B981; color:white; border:none; border-radius:6px; padding:8px; font-weight:600; cursor:pointer;">
+                        ✓ Select All
+                    </button>
+                    <button id="seer-deselect-all" style="flex:1; background:#EF4444; color:white; border:none; border-radius:6px; padding:8px; font-weight:600; cursor:pointer;">
+                        ✗ Deselect All
+                    </button>
+                </div>
                 
-                <div style="margin-top:24px; padding-top:24px; border-top:1px solid #E5E7EB; display:flex; gap:12px;">
+                <div id="seer-category-list" style="margin-bottom:24px;"></div>
+                
+                <div style="padding-top:24px; border-top:1px solid #E5E7EB; display:flex; gap:12px;">
                     <button id="seer-save-settings" style="flex:1; background:#3B82F6; color:white; border:none; border-radius:8px; padding:12px; font-weight:600; cursor:pointer;">
-                        Save & Apply
+                        💾 Save & Apply
                     </button>
                     <button id="seer-reset-defaults" style="flex:1; background:#6B7280; color:white; border:none; border-radius:8px; padding:12px; font-weight:600; cursor:pointer;">
-                        Reset to Defaults
+                        ↺ Reset to Defaults
                     </button>
                     <button id="seer-cancel-settings" style="flex:1; background:#E5E7EB; color:#111; border:none; border-radius:8px; padding:12px; font-weight:600; cursor:pointer;">
-                        Cancel
+                        ✕ Cancel
                     </button>
                 </div>
             `;
@@ -364,26 +477,47 @@
                 const categoryRow = document.createElement('div');
                 categoryRow.style.cssText = `
                     display: flex;
-                    align-items: center;
-                    padding: 12px;
+                    flex-direction: column;
+                    padding: 16px;
                     border: 1px solid #E5E7EB;
                     border-radius: 8px;
                     margin-bottom: 12px;
                     background: #F9FAFB;
                 `;
 
-                categoryRow.innerHTML = `
-                    <input type="checkbox" id="toggle-${key}" ${category.enabled ? 'checked' : ''} style="width:20px; height:20px; cursor:pointer;">
+                const headerRow = document.createElement('div');
+                headerRow.style.cssText = 'display: flex; align-items: center; margin-bottom: 12px;';
+                
+                headerRow.innerHTML = `
+                    <input type="checkbox" id="toggle-${key}" class="category-toggle" ${category.enabled ? 'checked' : ''} style="width:20px; height:20px; cursor:pointer;">
                     <span style="margin-left:12px; font-size:20px;">${category.icon}</span>
                     <strong style="margin-left:8px; flex:1; font-size:16px;">${category.name}</strong>
-                    <input type="color" id="color-${key}" value="${category.color}" style="width:50px; height:30px; border:none; border-radius:4px; cursor:pointer;">
-                    <span style="margin-left:8px; font-size:12px; color:#6B7280;">${config.patterns[key]?.length || 0} patterns</span>
+                    <input type="color" id="color-${key}" value="${category.color}" style="width:50px; height:30px; border:none; border-radius:4px; cursor:pointer; margin-right:8px;">
                 `;
 
+                const patternsRow = document.createElement('div');
+                patternsRow.style.cssText = 'margin-top:8px;';
+                patternsRow.innerHTML = `
+                    <label style="display:block; margin-bottom:4px; font-size:12px; font-weight:600; color:#6B7280;">
+                        Keyword Patterns (comma-separated):
+                    </label>
+                    <textarea id="patterns-${key}" rows="2" style="width:100%; padding:8px; border:1px solid #D1D5DB; border-radius:4px; font-size:12px; font-family:monospace;">${config.patterns[key]?.join(', ') || ''}</textarea>
+                `;
+
+                categoryRow.appendChild(headerRow);
+                categoryRow.appendChild(patternsRow);
                 categoryList.appendChild(categoryRow);
             });
 
             // Event handlers
+            modal.querySelector('#seer-select-all').onclick = () => {
+                document.querySelectorAll('.category-toggle').forEach(cb => cb.checked = true);
+            };
+
+            modal.querySelector('#seer-deselect-all').onclick = () => {
+                document.querySelectorAll('.category-toggle').forEach(cb => cb.checked = false);
+            };
+
             modal.querySelector('#seer-save-settings').onclick = () => {
                 saveSettings();
                 overlay.remove();
@@ -424,12 +558,20 @@
             Object.keys(config.categories).forEach(key => {
                 const toggle = document.getElementById(`toggle-${key}`);
                 const colorInput = document.getElementById(`color-${key}`);
+                const patternsInput = document.getElementById(`patterns-${key}`);
 
                 if (toggle) {
                     config.categories[key].enabled = toggle.checked;
                 }
                 if (colorInput) {
                     config.categories[key].color = colorInput.value;
+                }
+                if (patternsInput) {
+                    const patterns = patternsInput.value
+                        .split(',')
+                        .map(p => p.trim())
+                        .filter(p => p.length > 0);
+                    config.patterns[key] = patterns;
                 }
             });
 
