@@ -1,5 +1,15 @@
 # Fixes Applied to Original Script
 
+## Version 1.3.1 - Syntax Error Fix
+
+### Bug Fix
+- **Fixed JavaScript syntax error** in `createControlRow()` function
+  - Multi-line strings were using single quotes instead of being on a single line
+  - This caused a syntax error that prevented the entire script from executing
+  - Filter bar now renders correctly on the NinjaCat agents page
+
+---
+
 ## Version 1.3.0 - Data Source Filters & UX Upgrades
 
 ### New Capabilities

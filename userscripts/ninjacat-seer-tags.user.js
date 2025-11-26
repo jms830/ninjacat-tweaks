@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Seer division tags, filtering, and auto-expand for NinjaCat agents with customizable categories and data sources
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.3.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v1.3.1');
 
     // ---- Configuration Management ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -380,17 +380,7 @@
         const resetBtn = document.createElement('button');
         resetBtn.textContent = '↺ Reset';
         resetBtn.className = 'seer-reset-btn';
-        resetBtn.style.cssText = '
-            background:#E5E7EB;
-            color:#374151;
-            border:none;
-            border-radius:6px;
-            padding:6px 12px;
-            font-size:13px;
-            font-weight:600;
-            cursor:pointer;
-            transition:all 0.2s;
-        ';
+        resetBtn.style.cssText = 'background:#E5E7EB;color:#374151;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;';
         resetBtn.onclick = (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -400,16 +390,7 @@
 
         const settingsBtn = document.createElement('button');
         settingsBtn.innerHTML = '⚙️ Settings';
-        settingsBtn.style.cssText = '
-            background:#4B5563;
-            color:#fff;
-            border:none;
-            border-radius:6px;
-            padding:6px 12px;
-            font-size:13px;
-            font-weight:600;
-            cursor:pointer;
-        ';
+        settingsBtn.style.cssText = 'background:#4B5563;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;';
         settingsBtn.onclick = (e) => {
             e.preventDefault();
             e.stopPropagation();
