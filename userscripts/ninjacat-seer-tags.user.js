@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Seer division tags, filtering, and auto-expand for NinjaCat agents with customizable categories
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -83,6 +83,40 @@
     // Debounce timer for MutationObserver
     let debounceTimer = null;
 
+    // Remember which selector is currently being used for rows
+    let activeRowSelector = null;
+
+    // ---- Utility: Locate agent rows ----
+    function getAgentRows(log = true) {
+        const selectors = [
+            '[data-automation-id^="data-table-row"]',
+            '[data-automation-id*="agents-table-row"]',
+            '[data-testid^="agents-table-row"]',
+            'div[data-automation-id*="table-row"]',
+            'div[data-testid*="table-row"]',
+            'div[data-testid*="agent-row"]',
+            'table tbody tr',
+            '[role="row"][data-row-key]',
+            'div[role="row"]'
+        ];
+
+        for (const sel of selectors) {
+            const nodes = document.querySelectorAll(sel);
+            if (nodes.length > 0) {
+                if (log && activeRowSelector !== sel) {
+                    console.log(`[NinjaCat Seer Tags] Using row selector "${sel}" → ${nodes.length} matches`);
+                }
+                activeRowSelector = sel;
+                return Array.from(nodes);
+            }
+        }
+
+        if (log) {
+            console.warn('[NinjaCat Seer Tags] No agent rows found. Selectors tried:', selectors);
+        }
+        return [];
+    }
+
     // ---- Utility: Get tags for text ----
     function getTagsForText(text) {
         const tags = [];
@@ -116,7 +150,7 @@
     // ---- Tag agent cards and add data attribute ----
     function tagAgentCards() {
         try {
-            const agentCards = document.querySelectorAll('[data-automation-id^="data-table-row"]');
+            const agentCards = getAgentRows();
             
             if (agentCards.length === 0) {
                 console.log('[NinjaCat Seer Tags] No agent cards found');
@@ -141,6 +175,12 @@
                     // Save tags as data attribute for filtering
                     card.setAttribute('data-seer-tags', tags.map(t => t.name).join(','));
 
+                    // Remember original display style for filtering
+                    if (!card.dataset.originalDisplay) {
+                        const computed = getComputedStyle(card).display || '';
+                        card.dataset.originalDisplay = computed === 'none' ? '' : computed;
+                    }
+
                     // Add visible tag badges if tags exist
                     if (tags.length > 0) {
                         const tagDiv = document.createElement('div');
@@ -154,10 +194,15 @@
                             tagDiv.appendChild(badge);
                         });
 
-                        // Try to insert badges below agent name
-                        const nameDiv = card.querySelector('div.flex.items-center > div > div > p');
-                        if (nameDiv && nameDiv.parentElement) {
-                            nameDiv.parentElement.appendChild(tagDiv);
+                        // Try to insert badges below agent name or first column
+                        let insertionTarget = card.querySelector('[data-automation-id*="agent-name"], [data-testid*="agent-name"], div.flex.items-center > div > div > p');
+
+                        if (!insertionTarget && card.tagName === 'TR') {
+                            insertionTarget = card.querySelector('td');
+                        }
+
+                        if (insertionTarget && insertionTarget.parentElement) {
+                            insertionTarget.parentElement.appendChild(tagDiv);
                         } else {
                             // Fallback: append to card if specific selector fails
                             card.appendChild(tagDiv);
@@ -350,7 +395,7 @@
         try {
             console.log(`[NinjaCat Seer Tags] Filtering by: ${tagName || 'Reset'}`);
             
-            const agentCards = document.querySelectorAll('[data-automation-id^="data-table-row"]');
+            const agentCards = getAgentRows(false);
             console.log(`[NinjaCat Seer Tags] Found ${agentCards.length} agent cards to filter`);
             
             let visibleCount = 0;
@@ -361,9 +406,14 @@
                     
                     // Show if no filter OR tag matches
                     const shouldShow = !tagName || tags.includes(tagName);
-                    card.style.display = shouldShow ? '' : 'none';
+                    const originalDisplay = card.dataset.originalDisplay || '';
                     
-                    if (shouldShow) visibleCount++;
+                    if (shouldShow) {
+                        card.style.display = originalDisplay || (card.tagName === 'TR' ? 'table-row' : '');
+                        visibleCount++;
+                    } else {
+                        card.style.display = 'none';
+                    }
                     
                     console.log(`[NinjaCat Seer Tags] Card tags: [${tags.join(', ')}], Show: ${shouldShow}`);
                 } catch (cardError) {
