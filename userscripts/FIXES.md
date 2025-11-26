@@ -1,5 +1,26 @@
 # Fixes Applied to Original Script
 
+## Version 1.3.0 - Data Source Filters & UX Upgrades
+
+### New Capabilities
+- ✅ **Data source detection**: parses icon tooltips/labels for Google Analytics, GSC, Google Sheets, Meta Ads, and Google Ads
+- ✅ **Data source filtering**: second row of filters with sane UX (single click, multi-select with Ctrl/Cmd, reset)
+- ✅ **Stateful filtering**: remembers selected divisions + data sources and reapplies after SPA refreshes
+- ✅ **Better visual hierarchy**: filter bar is column layout with labels, hint text, and compact buttons
+
+### UX Enhancements
+- Multi-select filters (hold Ctrl/Cmd/Shift)
+- Second click on a filter deselects it (returns to "All")
+- Reset button highlights only when no filters are active
+- Buttons dim when other filters are active for quick glance context
+
+### Table Compatibility Fixes
+- Added adaptive row selector (`getAgentRows`) to handle NinjaCat DOM changes
+- Stores each row's original display value so hiding/showing doesn't break table layouts
+- Injects badges into the first `<td>` when rows are table-based
+
+---
+
 ## Version 1.0.0 - Initial Refined Release
 
 ### Constitutional Compliance Fixes
@@ -224,7 +245,7 @@ Before deploying, verify:
 
 3. **Pattern Matching**: Currently case-insensitive substring matching. Very specific terms might not match (e.g., "S.E.O" vs "SEO").
 
-4. **Single Filter Mode**: Only one division filter active at a time. Multi-select filtering not yet implemented (potential future enhancement).
+4. **Data Source Detection**: Relies on tooltip/alt text heuristics. If NinjaCat changes icon labels the patterns may need updating.
 
 ---
 
