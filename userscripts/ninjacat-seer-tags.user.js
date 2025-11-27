@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.6.0
+// @version      1.7.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.6.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v1.7.0');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -164,7 +164,9 @@
                 showUntagged: showUntaggedOnly,
                 sort: currentSort,
                 groupBy: currentGroupBy,
-                dataSourcesCollapsed: dataSourcesCollapsed
+                dataSourcesCollapsed: dataSourcesCollapsed,
+                excludedCategories: excludedCategories,
+                timeFilter: timeFilter
             }));
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error saving filter state:', error);
@@ -186,6 +188,8 @@
     let currentSort = savedFilterState.sort || { field: 'name', direction: 'asc' };
     let currentGroupBy = savedFilterState.groupBy || 'none';
     let dataSourcesCollapsed = savedFilterState.dataSourcesCollapsed || false;
+    let excludedCategories = savedFilterState.excludedCategories || [];
+    let timeFilter = savedFilterState.timeFilter || 'all';
 
     // ---- Global Keyboard Handler ----
     document.addEventListener('keydown', (e) => {
@@ -316,6 +320,62 @@
         return Object.entries(agentTags).filter(([agent, tags]) => tags.includes(tagName)).map(([agent]) => agent);
     }
 
+    function extractDateFromRow(row) {
+        const text = row.textContent || '';
+        
+        // Match patterns like "Nov 6, 2025", "Sep 23, 2025", "Yesterday", "Today", "6 days ago"
+        const monthDayYear = text.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})\b/i);
+        if (monthDayYear) {
+            const dateStr = `${monthDayYear[1]} ${monthDayYear[2]}, ${monthDayYear[3]}`;
+            const timestamp = new Date(dateStr).getTime();
+            return { timestamp, text: dateStr };
+        }
+        
+        // Match "Yesterday" or "Today"
+        const now = new Date();
+        if (/\bYesterday\b/i.test(text)) {
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            return { timestamp: yesterday.getTime(), text: 'Yesterday' };
+        }
+        if (/\bToday\b/i.test(text)) {
+            return { timestamp: now.getTime(), text: 'Today' };
+        }
+        
+        // Match "X days ago"
+        const daysAgo = text.match(/(\d+)\s*days?\s*ago/i);
+        if (daysAgo) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - parseInt(daysAgo[1]));
+            return { timestamp: d.getTime(), text: `${daysAgo[1]} days ago` };
+        }
+        
+        return { timestamp: 0, text: '' };
+    }
+
+    function extractOwnerFromRow(row) {
+        const text = row.textContent || '';
+        
+        // Match "by [Name]" pattern
+        const byMatch = text.match(/\bby\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
+        if (byMatch) {
+            return byMatch[1].trim();
+        }
+        
+        // Look for cells that might contain owner info
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 3) {
+            // Usually 3rd column is access/owner info
+            const accessText = cells[2]?.textContent?.trim();
+            if (accessText && (accessText.includes('by ') || /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(accessText))) {
+                const match = accessText.match(/by\s+(.+)/);
+                return match ? match[1] : accessText;
+            }
+        }
+        
+        return null;
+    }
+
     // ---- Auto-expand pagination ----
     function expandShowAll() {
         try {
@@ -348,11 +408,16 @@
                     const agentName = getAgentName(card);
                     const tags = getTagsForText(txt, agentName);
                     const sources = detectDataSources(card);
+                    const dateInfo = extractDateFromRow(card);
+                    const ownerInfo = extractOwnerFromRow(card);
 
                     card.setAttribute('data-seer-tags', tags.map(t => t.name).join(','));
                     card.setAttribute('data-seer-datasources', sources.join(','));
                     card.setAttribute('data-seer-has-tags', tags.length > 0 ? 'true' : 'false');
                     if (agentName) card.setAttribute('data-seer-agent-name', agentName);
+                    if (dateInfo.timestamp) card.setAttribute('data-seer-date', dateInfo.timestamp);
+                    if (dateInfo.text) card.setAttribute('data-seer-date-text', dateInfo.text);
+                    if (ownerInfo) card.setAttribute('data-seer-owner', ownerInfo);
 
                     if (!card.dataset.originalDisplay) {
                         const computed = getComputedStyle(card).display || '';
@@ -702,6 +767,11 @@
             activeCategoryFilters = [];
             activeSourceFilters = [];
             showUntaggedOnly = false;
+            excludedCategories = [];
+            timeFilter = 'all';
+            // Reset UI dropdowns
+            const timeSelect = document.getElementById('seer-time-filter');
+            if (timeSelect) timeSelect.value = 'all';
             applyFilters();
         };
 
@@ -917,8 +987,48 @@
         groupWrapper.appendChild(groupLabel);
         groupWrapper.appendChild(groupSelect);
 
+        // Time filter dropdown
+        const timeWrapper = document.createElement('div');
+        timeWrapper.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        
+        const timeLabel = document.createElement('span');
+        timeLabel.textContent = 'Edited:';
+        timeLabel.style.cssText = 'font-size:12px;font-weight:600;color:#6B7280;';
+        
+        const timeSelect = document.createElement('select');
+        timeSelect.id = 'seer-time-filter';
+        timeSelect.style.cssText = 'padding:4px 8px;border:1px solid #D1D5DB;border-radius:4px;font-size:12px;cursor:pointer;background:white;';
+        timeSelect.innerHTML = `
+            <option value="all" ${timeFilter === 'all' ? 'selected' : ''}>All time</option>
+            <option value="today" ${timeFilter === 'today' ? 'selected' : ''}>Today</option>
+            <option value="week" ${timeFilter === 'week' ? 'selected' : ''}>Last 7 days</option>
+            <option value="month" ${timeFilter === 'month' ? 'selected' : ''}>Last 30 days</option>
+            <option value="quarter" ${timeFilter === 'quarter' ? 'selected' : ''}>Last 90 days</option>
+        `;
+        timeSelect.onchange = () => {
+            timeFilter = timeSelect.value;
+            applyFilters();
+        };
+        
+        timeWrapper.appendChild(timeLabel);
+        timeWrapper.appendChild(timeSelect);
+
+        // Exclude tags button
+        const excludeBtn = document.createElement('button');
+        excludeBtn.id = 'seer-exclude-btn';
+        excludeBtn.innerHTML = `🚫 Hide Tags${excludedCategories.length > 0 ? ` (${excludedCategories.length})` : ''}`;
+        excludeBtn.title = 'Select tags to hide from the list';
+        excludeBtn.style.cssText = `background:${excludedCategories.length > 0 ? '#EF4444' : '#6B7280'};color:white;border:none;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;`;
+        excludeBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openExcludeModal();
+        };
+
         row.appendChild(sortWrapper);
         row.appendChild(groupWrapper);
+        row.appendChild(timeWrapper);
+        row.appendChild(excludeBtn);
         return row;
     }
 
@@ -941,6 +1051,75 @@
         return row;
     }
 
+    // ---- Exclude Tags Modal ----
+    function openExcludeModal() {
+        try {
+            document.getElementById('seer-exclude-modal')?.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'seer-exclude-modal';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10001;';
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;';
+
+            const categories = getSortedCategories();
+            let checkboxesHtml = categories.map(([key, cat]) => {
+                const isExcluded = excludedCategories.includes(cat.name);
+                return `
+                    <label style="display:flex;align-items:center;padding:8px 12px;border-radius:6px;cursor:pointer;transition:background 0.2s;${isExcluded ? 'background:#FEE2E2;' : ''}">
+                        <input type="checkbox" class="exclude-tag-checkbox" value="${cat.name}" ${isExcluded ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;">
+                        <span style="margin-left:10px;font-size:18px;">${cat.icon}</span>
+                        <span style="margin-left:8px;font-weight:500;background:${cat.color};color:white;padding:2px 8px;border-radius:4px;">${cat.name}</span>
+                    </label>
+                `;
+            }).join('');
+
+            modal.innerHTML = `
+                <h2 style="margin:0 0 8px 0;font-size:20px;font-weight:700;">🚫 Hide Tags</h2>
+                <p style="margin:0 0 16px 0;color:#6B7280;font-size:14px;">Select tags to <strong>exclude</strong> from the list. Agents with these tags will be hidden.</p>
+                <div style="max-height:300px;overflow-y:auto;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:16px;">
+                    ${checkboxesHtml || '<p style="padding:16px;color:#6B7280;">No tags available.</p>'}
+                </div>
+                <div style="display:flex;gap:12px;">
+                    <button id="seer-apply-exclude" style="flex:1;background:#EF4444;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">🚫 Apply</button>
+                    <button id="seer-clear-exclude" style="flex:1;background:#10B981;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">✓ Show All</button>
+                    <button id="seer-cancel-exclude" style="flex:1;background:#E5E7EB;color:#111;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">Cancel</button>
+                </div>
+            `;
+
+            modal.querySelector('#seer-apply-exclude').onclick = () => {
+                excludedCategories = Array.from(modal.querySelectorAll('.exclude-tag-checkbox:checked')).map(cb => cb.value);
+                overlay.remove();
+                updateExcludeButton();
+                applyFilters();
+            };
+
+            modal.querySelector('#seer-clear-exclude').onclick = () => {
+                excludedCategories = [];
+                overlay.remove();
+                updateExcludeButton();
+                applyFilters();
+            };
+
+            modal.querySelector('#seer-cancel-exclude').onclick = () => overlay.remove();
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error opening exclude modal:', error);
+        }
+    }
+
+    function updateExcludeButton() {
+        const btn = document.getElementById('seer-exclude-btn');
+        if (btn) {
+            btn.innerHTML = `🚫 Hide Tags${excludedCategories.length > 0 ? ` (${excludedCategories.length})` : ''}`;
+            btn.style.background = excludedCategories.length > 0 ? '#EF4444' : '#6B7280';
+        }
+    }
+
     function updateActiveFiltersDisplay() {
         const container = document.getElementById('seer-active-filters');
         const badge = document.getElementById('seer-filter-badge');
@@ -949,7 +1128,8 @@
         
         if (!container) return;
         
-        const totalActive = activeCategoryFilters.length + activeSourceFilters.length + (showUntaggedOnly ? 1 : 0);
+        const totalActive = activeCategoryFilters.length + activeSourceFilters.length + 
+            (showUntaggedOnly ? 1 : 0) + excludedCategories.length + (timeFilter !== 'all' ? 1 : 0);
         
         // Update badge
         if (badge) {
@@ -1010,6 +1190,17 @@
         if (showUntaggedOnly) {
             container.appendChild(createFilterChip('Untagged', '#9CA3AF', '❓', 'untagged'));
         }
+        
+        // Excluded tags chip
+        if (excludedCategories.length > 0) {
+            container.appendChild(createFilterChip(`Hiding ${excludedCategories.length} tags`, '#EF4444', '🚫', 'excluded'));
+        }
+        
+        // Time filter chip
+        if (timeFilter !== 'all') {
+            const timeLabels = { today: 'Today', week: 'Last 7 days', month: 'Last 30 days', quarter: 'Last 90 days' };
+            container.appendChild(createFilterChip(timeLabels[timeFilter], '#6366F1', '📅', 'time'));
+        }
     }
 
     function createFilterChip(name, color, icon, type) {
@@ -1032,6 +1223,13 @@
                 activeSourceFilters = activeSourceFilters.filter(f => f !== name);
             } else if (type === 'untagged') {
                 showUntaggedOnly = false;
+            } else if (type === 'excluded') {
+                excludedCategories = [];
+                updateExcludeButton();
+            } else if (type === 'time') {
+                timeFilter = 'all';
+                const timeSelect = document.getElementById('seer-time-filter');
+                if (timeSelect) timeSelect.value = 'all';
             }
             applyFilters();
         };
@@ -1071,6 +1269,7 @@
             const rows = getAgentRows(false);
             const catFilters = activeCategoryFilters.slice();
             const sourceFilters = activeSourceFilters.slice();
+            const timeThreshold = getTimeThreshold();
 
             let visible = 0;
             rows.forEach(row => {
@@ -1079,10 +1278,19 @@
                 const hasTags = row.getAttribute('data-seer-has-tags') === 'true';
                 const tags = tagAttr.split(',').map(t => t.trim()).filter(Boolean);
                 const sources = sourceAttr.split(',').map(t => t.trim()).filter(Boolean);
+                const rowDate = parseInt(row.getAttribute('data-seer-date') || '0');
 
                 let shouldShow = true;
                 
-                if (showUntaggedOnly) {
+                // Check excluded tags first
+                if (excludedCategories.length > 0 && excludedCategories.some(exc => tags.includes(exc))) {
+                    shouldShow = false;
+                }
+                // Check time filter
+                else if (timeThreshold > 0 && rowDate > 0 && rowDate < timeThreshold) {
+                    shouldShow = false;
+                }
+                else if (showUntaggedOnly) {
                     shouldShow = !hasTags;
                 } else {
                     const matchesCategory = catFilters.length === 0 || catFilters.some(tag => tags.includes(tag));
@@ -1099,12 +1307,31 @@
             updateFilterCount();
             updateButtonStates();
             updateActiveFiltersDisplay();
+            updateExcludeButton();
             applySortAndGroup();
             saveFilterState();
             
             console.log(`[NinjaCat Seer Tags] Filters applied. Visible: ${visible}/${rows.length}`);
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error applying filters:', error);
+        }
+    }
+
+    function getTimeThreshold() {
+        const now = Date.now();
+        switch (timeFilter) {
+            case 'today':
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                return today.getTime();
+            case 'week':
+                return now - (7 * 24 * 60 * 60 * 1000);
+            case 'month':
+                return now - (30 * 24 * 60 * 60 * 1000);
+            case 'quarter':
+                return now - (90 * 24 * 60 * 60 * 1000);
+            default:
+                return 0;
         }
     }
 
