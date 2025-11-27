@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.5.2
+// @version      1.6.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.5.2');
+    console.log('[NinjaCat Seer Tags] Script loaded v1.6.0');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -161,7 +161,10 @@
             localStorage.setItem(FILTER_STATE_KEY, JSON.stringify({
                 categories: activeCategoryFilters,
                 sources: activeSourceFilters,
-                showUntagged: showUntaggedOnly
+                showUntagged: showUntaggedOnly,
+                sort: currentSort,
+                groupBy: currentGroupBy,
+                dataSourcesCollapsed: dataSourcesCollapsed
             }));
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error saving filter state:', error);
@@ -180,6 +183,9 @@
     let activeSourceFilters = savedFilterState.sources || [];
     let showUntaggedOnly = savedFilterState.showUntagged || false;
     let currentFilterStats = { visible: 0, total: 0 };
+    let currentSort = savedFilterState.sort || { field: 'name', direction: 'asc' };
+    let currentGroupBy = savedFilterState.groupBy || 'none';
+    let dataSourcesCollapsed = savedFilterState.dataSourcesCollapsed || false;
 
     // ---- Global Keyboard Handler ----
     document.addEventListener('keydown', (e) => {
@@ -581,6 +587,7 @@
             if (document.getElementById('seer-tag-bar')) {
                 updateButtonStates();
                 updateFilterCount();
+                updateActiveFiltersDisplay();
                 return;
             }
 
@@ -588,20 +595,32 @@
             bar.id = 'seer-tag-bar';
             bar.style.cssText = 'display:flex;flex-direction:column;gap:10px;margin-bottom:16px;padding:12px;background:#F9FAFB;border-radius:10px;border:1px solid #E5E7EB;';
 
-            // Filter count display
-            const countRow = document.createElement('div');
-            countRow.id = 'seer-filter-count';
-            countRow.style.cssText = 'font-size:14px;font-weight:600;color:#374151;padding:4px 0;';
-            countRow.textContent = 'Loading...';
-
+            // Header row with count, active filter badge, and controls
+            const headerRow = createHeaderRow();
+            
+            // Active filters chips (shown when filters are active)
+            const activeFiltersRow = document.createElement('div');
+            activeFiltersRow.id = 'seer-active-filters';
+            activeFiltersRow.style.cssText = 'display:none;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid #E5E7EB;';
+            
+            // Category filters row
             const categoryRow = createFilterRow('Filters', config.categories, 'category');
-            const sourceRow = createFilterRow('Data Sources', dataSources, 'source');
-            const controlsRow = createControlRow();
+            
+            // Data sources row (collapsible)
+            const sourceRow = createCollapsibleSourceRow();
+            
+            // Sort and Group controls
+            const sortGroupRow = createSortGroupRow();
+            
+            // Help row
+            const helpRow = createHelpRow();
 
-            bar.appendChild(countRow);
+            bar.appendChild(headerRow);
+            bar.appendChild(activeFiltersRow);
             bar.appendChild(categoryRow);
             bar.appendChild(sourceRow);
-            bar.appendChild(controlsRow);
+            bar.appendChild(sortGroupRow);
+            bar.appendChild(helpRow);
 
             // Insert bar
             let inserted = false;
@@ -644,10 +663,65 @@
             }
 
             updateButtonStates();
+            updateActiveFiltersDisplay();
             console.log('[NinjaCat Seer Tags] Filter bar inserted');
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in addTagFilterBar:', error);
         }
+    }
+
+    function createHeaderRow() {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;';
+
+        // Agent count
+        const countEl = document.createElement('div');
+        countEl.id = 'seer-filter-count';
+        countEl.style.cssText = 'font-size:14px;font-weight:600;color:#374151;';
+        countEl.textContent = 'Loading...';
+
+        // Active filter badge
+        const badgeEl = document.createElement('span');
+        badgeEl.id = 'seer-filter-badge';
+        badgeEl.style.cssText = 'display:none;background:#3B82F6;color:white;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;';
+        badgeEl.textContent = '0 active';
+
+        // Spacer
+        const spacer = document.createElement('div');
+        spacer.style.cssText = 'flex:1;';
+
+        // Reset button (hidden when no filters)
+        const resetBtn = document.createElement('button');
+        resetBtn.id = 'seer-reset-btn';
+        resetBtn.innerHTML = '✕ Clear Filters';
+        resetBtn.className = 'seer-reset-btn';
+        resetBtn.style.cssText = 'display:none;background:#EF4444;color:white;border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;';
+        resetBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            activeCategoryFilters = [];
+            activeSourceFilters = [];
+            showUntaggedOnly = false;
+            applyFilters();
+        };
+
+        // Settings button
+        const settingsBtn = document.createElement('button');
+        settingsBtn.innerHTML = '⚙️';
+        settingsBtn.title = 'Settings';
+        settingsBtn.style.cssText = 'background:#4B5563;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:14px;cursor:pointer;';
+        settingsBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openSettingsModal();
+        };
+
+        row.appendChild(countEl);
+        row.appendChild(badgeEl);
+        row.appendChild(spacer);
+        row.appendChild(resetBtn);
+        row.appendChild(settingsBtn);
+        return row;
     }
 
     function createFilterRow(label, configMap, type) {
@@ -657,10 +731,9 @@
 
         const labelEl = document.createElement('span');
         labelEl.textContent = label;
-        labelEl.style.cssText = 'font-size:12px;font-weight:700;color:#4B5563;margin-right:6px;min-width:90px;';
+        labelEl.style.cssText = 'font-size:12px;font-weight:700;color:#4B5563;margin-right:6px;min-width:70px;';
         row.appendChild(labelEl);
 
-        // Get sorted entries
         const entries = type === 'category' ? getSortedCategories() : getSortedDataSources();
 
         entries.forEach(([key, item]) => {
@@ -669,6 +742,8 @@
             btn.className = type === 'category' ? 'seer-filter-btn' : 'seer-source-btn';
             btn.setAttribute('data-tag', item.name);
             btn.setAttribute('data-color', item.color);
+            btn.setAttribute('aria-pressed', 'false');
+            btn.setAttribute('role', 'button');
             btn.style.cssText = `background:${item.color};color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;`;
 
             btn.onclick = (e) => {
@@ -690,6 +765,7 @@
             const untaggedBtn = document.createElement('button');
             untaggedBtn.innerHTML = '❓ Untagged';
             untaggedBtn.className = 'seer-untagged-btn';
+            untaggedBtn.setAttribute('aria-pressed', 'false');
             untaggedBtn.style.cssText = 'background:#9CA3AF;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;';
             untaggedBtn.onclick = (e) => {
                 e.preventDefault();
@@ -707,40 +783,262 @@
         return row;
     }
 
-    function createControlRow() {
+    function createCollapsibleSourceRow() {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'seer-source-wrapper';
+        
+        // Header with collapse toggle
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;';
+        header.onclick = () => {
+            dataSourcesCollapsed = !dataSourcesCollapsed;
+            updateDataSourcesVisibility();
+            saveFilterState();
+        };
+        
+        const toggleIcon = document.createElement('span');
+        toggleIcon.id = 'seer-source-toggle';
+        toggleIcon.textContent = dataSourcesCollapsed ? '▶' : '▼';
+        toggleIcon.style.cssText = 'font-size:10px;color:#6B7280;width:12px;';
+        
+        const labelEl = document.createElement('span');
+        labelEl.textContent = 'Data Sources';
+        labelEl.style.cssText = 'font-size:12px;font-weight:700;color:#4B5563;';
+        
+        const countBadge = document.createElement('span');
+        countBadge.id = 'seer-source-count-badge';
+        countBadge.style.cssText = 'display:none;background:#0EA5E9;color:white;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px;';
+        
+        header.appendChild(toggleIcon);
+        header.appendChild(labelEl);
+        header.appendChild(countBadge);
+        
+        // Content (filter buttons)
+        const content = document.createElement('div');
+        content.id = 'seer-source-content';
+        content.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;margin-left:18px;';
+        
+        const entries = getSortedDataSources();
+        entries.forEach(([key, item]) => {
+            const btn = document.createElement('button');
+            btn.innerHTML = `${item.icon} ${item.name}`;
+            btn.className = 'seer-source-btn';
+            btn.setAttribute('data-tag', item.name);
+            btn.setAttribute('data-color', item.color);
+            btn.setAttribute('aria-pressed', 'false');
+            btn.style.cssText = `background:${item.color};color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;`;
+
+            btn.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const multi = e.ctrlKey || e.metaKey || e.shiftKey;
+                handleSourceSelection(item.name, multi);
+            };
+
+            content.appendChild(btn);
+        });
+        
+        wrapper.appendChild(header);
+        wrapper.appendChild(content);
+        
+        // Apply initial collapsed state
+        setTimeout(() => updateDataSourcesVisibility(), 0);
+        
+        return wrapper;
+    }
+
+    function updateDataSourcesVisibility() {
+        const content = document.getElementById('seer-source-content');
+        const toggle = document.getElementById('seer-source-toggle');
+        if (content) {
+            content.style.display = dataSourcesCollapsed ? 'none' : 'flex';
+        }
+        if (toggle) {
+            toggle.textContent = dataSourcesCollapsed ? '▶' : '▼';
+        }
+    }
+
+    function createSortGroupRow() {
         const row = document.createElement('div');
-        row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap;';
+        row.style.cssText = 'display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding-top:8px;border-top:1px solid #E5E7EB;';
 
-        const hint = document.createElement('span');
-        hint.textContent = 'Ctrl/Cmd+click to multi-select • 🏷️ tag agent • ➕ add pattern • Esc closes modals';
-        hint.style.cssText = 'font-size:11px;color:#6B7280;flex:1;min-width:200px;';
+        // Sort dropdown
+        const sortWrapper = document.createElement('div');
+        sortWrapper.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        
+        const sortLabel = document.createElement('span');
+        sortLabel.textContent = 'Sort:';
+        sortLabel.style.cssText = 'font-size:12px;font-weight:600;color:#6B7280;';
+        
+        const sortSelect = document.createElement('select');
+        sortSelect.id = 'seer-sort-select';
+        sortSelect.style.cssText = 'padding:4px 8px;border:1px solid #D1D5DB;border-radius:4px;font-size:12px;cursor:pointer;background:white;';
+        sortSelect.innerHTML = `
+            <option value="name-asc" ${currentSort.field === 'name' && currentSort.direction === 'asc' ? 'selected' : ''}>Name (A-Z)</option>
+            <option value="name-desc" ${currentSort.field === 'name' && currentSort.direction === 'desc' ? 'selected' : ''}>Name (Z-A)</option>
+            <option value="date-desc" ${currentSort.field === 'date' && currentSort.direction === 'desc' ? 'selected' : ''}>Last Edited (Newest)</option>
+            <option value="date-asc" ${currentSort.field === 'date' && currentSort.direction === 'asc' ? 'selected' : ''}>Last Edited (Oldest)</option>
+            <option value="tags-desc" ${currentSort.field === 'tags' && currentSort.direction === 'desc' ? 'selected' : ''}>Most Tags</option>
+            <option value="tags-asc" ${currentSort.field === 'tags' && currentSort.direction === 'asc' ? 'selected' : ''}>Fewest Tags</option>
+        `;
+        sortSelect.onchange = () => {
+            const [field, direction] = sortSelect.value.split('-');
+            currentSort = { field, direction };
+            applySortAndGroup();
+            saveFilterState();
+        };
+        
+        sortWrapper.appendChild(sortLabel);
+        sortWrapper.appendChild(sortSelect);
 
-        const resetBtn = document.createElement('button');
-        resetBtn.textContent = '↺ Reset';
-        resetBtn.className = 'seer-reset-btn';
-        resetBtn.style.cssText = 'background:#E5E7EB;color:#374151;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;';
-        resetBtn.onclick = (e) => {
+        // Group dropdown
+        const groupWrapper = document.createElement('div');
+        groupWrapper.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        
+        const groupLabel = document.createElement('span');
+        groupLabel.textContent = 'Group by:';
+        groupLabel.style.cssText = 'font-size:12px;font-weight:600;color:#6B7280;';
+        
+        const groupSelect = document.createElement('select');
+        groupSelect.id = 'seer-group-select';
+        groupSelect.style.cssText = 'padding:4px 8px;border:1px solid #D1D5DB;border-radius:4px;font-size:12px;cursor:pointer;background:white;';
+        groupSelect.innerHTML = `
+            <option value="none" ${currentGroupBy === 'none' ? 'selected' : ''}>None</option>
+            <option value="tag" ${currentGroupBy === 'tag' ? 'selected' : ''}>Primary Tag</option>
+            <option value="source" ${currentGroupBy === 'source' ? 'selected' : ''}>Data Source</option>
+            <option value="owner" ${currentGroupBy === 'owner' ? 'selected' : ''}>Owner/User</option>
+        `;
+        groupSelect.onchange = () => {
+            currentGroupBy = groupSelect.value;
+            applySortAndGroup();
+            saveFilterState();
+        };
+        
+        groupWrapper.appendChild(groupLabel);
+        groupWrapper.appendChild(groupSelect);
+
+        row.appendChild(sortWrapper);
+        row.appendChild(groupWrapper);
+        return row;
+    }
+
+    function createHelpRow() {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding-top:6px;';
+
+        // Help icon with tooltip
+        const helpBtn = document.createElement('button');
+        helpBtn.innerHTML = '?';
+        helpBtn.title = 'Keyboard shortcuts:\n• Ctrl/Cmd+Click: Multi-select filters\n• Esc: Close modals\n• 🏷️: Tag agent manually\n• ➕: Add auto-tag pattern';
+        helpBtn.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#E5E7EB;border:none;font-size:11px;font-weight:700;color:#6B7280;cursor:help;';
+        
+        const hintText = document.createElement('span');
+        hintText.textContent = 'Ctrl+click to multi-select';
+        hintText.style.cssText = 'font-size:11px;color:#9CA3AF;';
+
+        row.appendChild(helpBtn);
+        row.appendChild(hintText);
+        return row;
+    }
+
+    function updateActiveFiltersDisplay() {
+        const container = document.getElementById('seer-active-filters');
+        const badge = document.getElementById('seer-filter-badge');
+        const resetBtn = document.getElementById('seer-reset-btn');
+        const sourceCountBadge = document.getElementById('seer-source-count-badge');
+        
+        if (!container) return;
+        
+        const totalActive = activeCategoryFilters.length + activeSourceFilters.length + (showUntaggedOnly ? 1 : 0);
+        
+        // Update badge
+        if (badge) {
+            if (totalActive > 0) {
+                badge.style.display = 'inline';
+                badge.textContent = `${totalActive} active`;
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+        
+        // Update reset button visibility
+        if (resetBtn) {
+            resetBtn.style.display = totalActive > 0 ? 'inline-block' : 'none';
+        }
+        
+        // Update source count badge (when collapsed)
+        if (sourceCountBadge) {
+            if (activeSourceFilters.length > 0 && dataSourcesCollapsed) {
+                sourceCountBadge.style.display = 'inline';
+                sourceCountBadge.textContent = activeSourceFilters.length;
+            } else {
+                sourceCountBadge.style.display = 'none';
+            }
+        }
+        
+        // Build active filter chips
+        container.innerHTML = '';
+        if (totalActive === 0) {
+            container.style.display = 'none';
+            return;
+        }
+        
+        container.style.display = 'flex';
+        
+        const label = document.createElement('span');
+        label.textContent = 'Active:';
+        label.style.cssText = 'font-size:11px;font-weight:600;color:#6B7280;margin-right:4px;';
+        container.appendChild(label);
+        
+        // Category chips
+        activeCategoryFilters.forEach(name => {
+            const cat = Object.values(config.categories).find(c => c.name === name);
+            if (cat) {
+                container.appendChild(createFilterChip(name, cat.color, cat.icon, 'category'));
+            }
+        });
+        
+        // Source chips
+        activeSourceFilters.forEach(name => {
+            const src = Object.values(dataSources).find(s => s.name === name);
+            if (src) {
+                container.appendChild(createFilterChip(name, src.color, src.icon, 'source'));
+            }
+        });
+        
+        // Untagged chip
+        if (showUntaggedOnly) {
+            container.appendChild(createFilterChip('Untagged', '#9CA3AF', '❓', 'untagged'));
+        }
+    }
+
+    function createFilterChip(name, color, icon, type) {
+        const chip = document.createElement('span');
+        chip.style.cssText = `display:inline-flex;align-items:center;gap:4px;background:${color};color:white;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:500;`;
+        
+        const text = document.createElement('span');
+        text.textContent = `${icon} ${name}`;
+        
+        const removeBtn = document.createElement('button');
+        removeBtn.innerHTML = '×';
+        removeBtn.title = `Remove ${name} filter`;
+        removeBtn.style.cssText = 'background:rgba(255,255,255,0.3);border:none;border-radius:50%;width:14px;height:14px;font-size:12px;line-height:1;cursor:pointer;color:white;padding:0;';
+        removeBtn.onclick = (e) => {
             e.preventDefault();
             e.stopPropagation();
-            activeCategoryFilters = [];
-            activeSourceFilters = [];
-            showUntaggedOnly = false;
+            if (type === 'category') {
+                activeCategoryFilters = activeCategoryFilters.filter(f => f !== name);
+            } else if (type === 'source') {
+                activeSourceFilters = activeSourceFilters.filter(f => f !== name);
+            } else if (type === 'untagged') {
+                showUntaggedOnly = false;
+            }
             applyFilters();
         };
-
-        const settingsBtn = document.createElement('button');
-        settingsBtn.innerHTML = '⚙️ Settings';
-        settingsBtn.style.cssText = 'background:#4B5563;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;';
-        settingsBtn.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openSettingsModal();
-        };
-
-        row.appendChild(hint);
-        row.appendChild(resetBtn);
-        row.appendChild(settingsBtn);
-        return row;
+        
+        chip.appendChild(text);
+        chip.appendChild(removeBtn);
+        return chip;
     }
 
     // ---- Filtering ----
@@ -800,12 +1098,210 @@
             currentFilterStats = { visible, total: rows.length };
             updateFilterCount();
             updateButtonStates();
+            updateActiveFiltersDisplay();
+            applySortAndGroup();
             saveFilterState();
             
             console.log(`[NinjaCat Seer Tags] Filters applied. Visible: ${visible}/${rows.length}`);
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error applying filters:', error);
         }
+    }
+
+    // ---- Sort and Group ----
+    function applySortAndGroup() {
+        try {
+            const rows = getAgentRows(false);
+            if (rows.length === 0) return;
+
+            // Remove existing group headers
+            document.querySelectorAll('.seer-group-header').forEach(h => h.remove());
+
+            // Get visible rows only
+            const visibleRows = rows.filter(r => r.style.display !== 'none');
+            if (visibleRows.length === 0) return;
+
+            // Sort rows
+            const sortedRows = sortRows(visibleRows);
+
+            // Group rows if needed
+            if (currentGroupBy !== 'none') {
+                applyGrouping(sortedRows);
+            } else {
+                // Just reorder rows without grouping
+                const parent = sortedRows[0].parentElement;
+                if (parent) {
+                    sortedRows.forEach(row => parent.appendChild(row));
+                }
+            }
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error in applySortAndGroup:', error);
+        }
+    }
+
+    function sortRows(rows) {
+        return [...rows].sort((a, b) => {
+            let valueA, valueB;
+
+            switch (currentSort.field) {
+                case 'name':
+                    valueA = (a.getAttribute('data-seer-agent-name') || '').toLowerCase();
+                    valueB = (b.getAttribute('data-seer-agent-name') || '').toLowerCase();
+                    break;
+                case 'date':
+                    // Try to find date from the row content
+                    valueA = extractDate(a);
+                    valueB = extractDate(b);
+                    break;
+                case 'tags':
+                    valueA = (a.getAttribute('data-seer-tags') || '').split(',').filter(Boolean).length;
+                    valueB = (b.getAttribute('data-seer-tags') || '').split(',').filter(Boolean).length;
+                    break;
+                default:
+                    valueA = '';
+                    valueB = '';
+            }
+
+            let comparison = 0;
+            if (typeof valueA === 'string') {
+                comparison = valueA.localeCompare(valueB);
+            } else {
+                comparison = valueA - valueB;
+            }
+
+            return currentSort.direction === 'desc' ? -comparison : comparison;
+        });
+    }
+
+    function extractDate(row) {
+        // Try to find a date in the row (look for common date patterns)
+        const text = row.textContent || '';
+        const dateMatch = text.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})|(\d{4}-\d{2}-\d{2})|(\w+ \d{1,2}, \d{4})/);
+        if (dateMatch) {
+            return new Date(dateMatch[0]).getTime() || 0;
+        }
+        // Look for relative dates like "2 days ago"
+        const relativeMatch = text.match(/(\d+)\s*(minute|hour|day|week|month)s?\s*ago/i);
+        if (relativeMatch) {
+            const num = parseInt(relativeMatch[1]);
+            const unit = relativeMatch[2].toLowerCase();
+            const now = Date.now();
+            const multipliers = { minute: 60000, hour: 3600000, day: 86400000, week: 604800000, month: 2592000000 };
+            return now - (num * (multipliers[unit] || 86400000));
+        }
+        return 0;
+    }
+
+    function applyGrouping(sortedRows) {
+        const groups = new Map();
+
+        sortedRows.forEach(row => {
+            let groupKey = 'Other';
+
+            switch (currentGroupBy) {
+                case 'tag':
+                    const tags = (row.getAttribute('data-seer-tags') || '').split(',').filter(Boolean);
+                    groupKey = tags[0] || 'Untagged';
+                    break;
+                case 'source':
+                    const sources = (row.getAttribute('data-seer-datasources') || '').split(',').filter(Boolean);
+                    groupKey = sources[0] || 'No Data Source';
+                    break;
+                case 'owner':
+                    groupKey = extractOwner(row) || 'Unknown';
+                    break;
+            }
+
+            if (!groups.has(groupKey)) {
+                groups.set(groupKey, []);
+            }
+            groups.get(groupKey).push(row);
+        });
+
+        // Sort group keys
+        const sortedGroups = [...groups.entries()].sort((a, b) => {
+            if (a[0] === 'Other' || a[0] === 'Untagged' || a[0] === 'No Data Source' || a[0] === 'Unknown') return 1;
+            if (b[0] === 'Other' || b[0] === 'Untagged' || b[0] === 'No Data Source' || b[0] === 'Unknown') return -1;
+            return a[0].localeCompare(b[0]);
+        });
+
+        // Insert group headers and reorder rows
+        const parent = sortedRows[0].parentElement;
+        if (!parent) return;
+
+        sortedGroups.forEach(([groupName, groupRows]) => {
+            // Create group header
+            const header = createGroupHeader(groupName, groupRows.length);
+            parent.appendChild(header);
+
+            // Add rows for this group
+            groupRows.forEach(row => parent.appendChild(row));
+        });
+    }
+
+    function extractOwner(row) {
+        // Try to find owner/user info in the row
+        // Look for common patterns like email, username columns, or avatar tooltips
+        const tooltips = row.querySelectorAll('[title], [data-tooltip-content], [aria-label]');
+        for (const el of tooltips) {
+            const text = el.getAttribute('title') || el.getAttribute('data-tooltip-content') || el.getAttribute('aria-label') || '';
+            if (text.includes('@') || text.toLowerCase().includes('created by') || text.toLowerCase().includes('owner')) {
+                // Extract email or name
+                const emailMatch = text.match(/[\w.-]+@[\w.-]+/);
+                if (emailMatch) return emailMatch[0].split('@')[0]; // Return username part
+                const nameMatch = text.match(/(?:created by|owner:?)\s*(.+)/i);
+                if (nameMatch) return nameMatch[1].trim();
+            }
+        }
+        
+        // Try to find in row cells
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 3) {
+            // Assume 3rd column might be owner/access
+            const accessCell = cells[2];
+            if (accessCell) {
+                const text = accessCell.textContent.trim();
+                if (text && text.length < 50) return text;
+            }
+        }
+        
+        return null;
+    }
+
+    function createGroupHeader(name, count) {
+        const header = document.createElement('div');
+        header.className = 'seer-group-header';
+        header.style.cssText = 'padding:12px 16px;background:linear-gradient(to right, #E0E7FF, #F3F4F6);border-radius:6px;margin:12px 0 8px 0;font-weight:700;font-size:13px;color:#4338CA;display:flex;align-items:center;justify-content:space-between;';
+        
+        // Get color for tag/source groups
+        let color = '#4338CA';
+        let icon = '📁';
+        
+        if (currentGroupBy === 'tag') {
+            const cat = Object.values(config.categories).find(c => c.name === name);
+            if (cat) {
+                color = cat.color;
+                icon = cat.icon;
+            }
+        } else if (currentGroupBy === 'source') {
+            const src = Object.values(dataSources).find(s => s.name === name);
+            if (src) {
+                color = src.color;
+                icon = src.icon;
+            }
+        } else if (currentGroupBy === 'owner') {
+            icon = '👤';
+        }
+        
+        header.innerHTML = `
+            <span style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:16px;">${icon}</span>
+                <span style="color:${color};">${name}</span>
+            </span>
+            <span style="background:${color};color:white;padding:2px 8px;border-radius:10px;font-size:11px;">${count}</span>
+        `;
+        
+        return header;
     }
 
     function updateFilterCount() {
@@ -834,6 +1330,7 @@
             btn.style.opacity = (activeCats.size === 0 && !showUntaggedOnly) || active ? '1' : '0.5';
             btn.style.boxShadow = active ? '0 0 0 3px #111827' : '';
             btn.style.transform = active ? 'scale(1.05)' : 'scale(1)';
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
         });
 
         document.querySelectorAll('.seer-source-btn').forEach(btn => {
@@ -842,6 +1339,7 @@
             btn.style.opacity = (activeSources.size === 0 && !showUntaggedOnly) || active ? '1' : '0.5';
             btn.style.boxShadow = active ? '0 0 0 3px #111827' : '';
             btn.style.transform = active ? 'scale(1.05)' : 'scale(1)';
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
         });
 
         const untaggedBtn = document.querySelector('.seer-untagged-btn');
@@ -849,13 +1347,7 @@
             untaggedBtn.style.opacity = showUntaggedOnly ? '1' : '0.7';
             untaggedBtn.style.boxShadow = showUntaggedOnly ? '0 0 0 3px #111827' : '';
             untaggedBtn.style.transform = showUntaggedOnly ? 'scale(1.05)' : 'scale(1)';
-        }
-
-        const resetBtn = document.querySelector('.seer-reset-btn');
-        if (resetBtn) {
-            const noFilters = activeCategoryFilters.length === 0 && activeSourceFilters.length === 0 && !showUntaggedOnly;
-            resetBtn.style.background = noFilters ? '#D1D5DB' : '#E5E7EB';
-            resetBtn.style.boxShadow = noFilters ? '0 0 0 2px #3B82F6' : '';
+            untaggedBtn.setAttribute('aria-pressed', showUntaggedOnly ? 'true' : 'false');
         }
     }
 
