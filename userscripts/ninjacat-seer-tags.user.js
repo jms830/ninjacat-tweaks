@@ -30,7 +30,7 @@
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
     const AGENT_TAGS_KEY = 'ninjacat-seer-agent-tags';
-    const FILTER_STATE_KEY = 'ninjacat-seer-filter-state';
+    const FILTER_STATE_KEY = 'ninjacat-seer-filter-state'; // persists filters, excludes, sort/group
     const DATA_SOURCES_KEY = 'ninjacat-seer-data-sources';
     
     // ---- Default Configuration ----
@@ -153,7 +153,7 @@
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error loading filter state:', error);
         }
-        return { categories: [], sources: [], showUntagged: false };
+        return { categories: [], sources: [], showUntagged: false, excludedOwners: [] };
     }
 
     function saveFilterState() {
@@ -166,6 +166,7 @@
                 groupBy: currentGroupBy,
                 dataSourcesCollapsed: dataSourcesCollapsed,
                 excludedCategories: excludedCategories,
+                excludedOwners: excludedOwners,
                 timeFilter: timeFilter
             }));
         } catch (error) {
@@ -189,6 +190,7 @@
     let currentGroupBy = savedFilterState.groupBy || 'none';
     let dataSourcesCollapsed = savedFilterState.dataSourcesCollapsed || false;
     let excludedCategories = savedFilterState.excludedCategories || [];
+    let excludedOwners = savedFilterState.excludedOwners || [];
     let timeFilter = savedFilterState.timeFilter || 'all';
 
     // ---- Global Keyboard Handler ----
@@ -1025,10 +1027,23 @@
             openExcludeModal();
         };
 
+        // Exclude users button
+        const hideUsersBtn = document.createElement('button');
+        hideUsersBtn.id = 'seer-hide-users-btn';
+        hideUsersBtn.innerHTML = `🙈 Hide Users${excludedOwners.length > 0 ? ` (${excludedOwners.length})` : ''}`;
+        hideUsersBtn.title = 'Select owners/users to hide from the list';
+        hideUsersBtn.style.cssText = `background:${excludedOwners.length > 0 ? '#EF4444' : '#6B7280'};color:white;border:none;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;`;
+        hideUsersBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openExcludeUsersModal();
+        };
+
         row.appendChild(sortWrapper);
         row.appendChild(groupWrapper);
         row.appendChild(timeWrapper);
         row.appendChild(excludeBtn);
+        row.appendChild(hideUsersBtn);
         return row;
     }
 
@@ -1049,6 +1064,74 @@
         row.appendChild(helpBtn);
         row.appendChild(hintText);
         return row;
+    }
+
+    // ---- Exclude Users Modal ----
+    function openExcludeUsersModal() {
+        try {
+            document.getElementById('seer-exclude-users-modal')?.remove();
+
+            const overlay = document.createElement('div');
+            overlay.id = 'seer-exclude-users-modal';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10001;';
+
+            const modal = document.createElement('div');
+            modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;';
+
+            // collect owners from page
+            const ownersSet = new Set();
+            getAgentRows(false).forEach(row => {
+                const owner = row.getAttribute('data-seer-owner');
+                if (owner) ownersSet.add(owner);
+            });
+            const owners = Array.from(ownersSet).sort((a,b)=>a.localeCompare(b));
+
+            let checkboxesHtml = owners.map(name => {
+                const isExcluded = excludedOwners.includes(name);
+                return `
+                    <label style="display:flex;align-items:center;padding:8px 12px;border-radius:6px;cursor:pointer;transition:background 0.2s;${isExcluded ? 'background:#FEE2E2;' : ''}">
+                        <input type="checkbox" class="exclude-user-checkbox" value="${name}" ${isExcluded ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;">
+                        <span style="margin-left:10px;font-size:18px;">👤</span>
+                        <span style="margin-left:8px;font-weight:500;">${name}</span>
+                    </label>
+                `;
+            }).join('');
+
+            modal.innerHTML = `
+                <h2 style="margin:0 0 8px 0;font-size:20px;font-weight:700;">🙈 Hide Users</h2>
+                <p style="margin:0 0 16px 0;color:#6B7280;font-size:14px;">Select owners/users to hide from the list.</p>
+                <div style="max-height:300px;overflow-y:auto;border:1px solid #E5E7EB;border-radius:8px;margin-bottom:12px;">
+                    ${checkboxesHtml || '<p style="padding:16px;color:#6B7280;">No owners detected on this page.</p>'}
+                </div>
+                <div style="display:flex;gap:12px;">
+                    <button id="seer-apply-exclude-users" style="flex:1;background:#EF4444;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">🙈 Apply</button>
+                    <button id="seer-clear-exclude-users" style="flex:1;background:#10B981;color:white;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">✓ Show All</button>
+                    <button id="seer-cancel-exclude-users" style="flex:1;background:#E5E7EB;color:#111;border:none;border-radius:8px;padding:12px;font-weight:600;cursor:pointer;">Cancel</button>
+                </div>
+            `;
+
+            modal.querySelector('#seer-apply-exclude-users').onclick = () => {
+                excludedOwners = Array.from(modal.querySelectorAll('.exclude-user-checkbox:checked')).map(cb => cb.value);
+                overlay.remove();
+                updateExcludeButton();
+                applyFilters();
+            };
+
+            modal.querySelector('#seer-clear-exclude-users').onclick = () => {
+                excludedOwners = [];
+                overlay.remove();
+                updateExcludeButton();
+                applyFilters();
+            };
+
+            modal.querySelector('#seer-cancel-exclude-users').onclick = () => overlay.remove();
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error opening exclude users modal:', error);
+        }
     }
 
     // ---- Exclude Tags Modal ----
@@ -1118,6 +1201,11 @@
             btn.innerHTML = `🚫 Hide Tags${excludedCategories.length > 0 ? ` (${excludedCategories.length})` : ''}`;
             btn.style.background = excludedCategories.length > 0 ? '#EF4444' : '#6B7280';
         }
+        const usersBtn = document.getElementById('seer-hide-users-btn');
+        if (usersBtn) {
+            usersBtn.innerHTML = `🙈 Hide Users${excludedOwners.length > 0 ? ` (${excludedOwners.length})` : ''}`;
+            usersBtn.style.background = excludedOwners.length > 0 ? '#EF4444' : '#6B7280';
+        }
     }
 
     function updateActiveFiltersDisplay() {
@@ -1129,7 +1217,7 @@
         if (!container) return;
         
         const totalActive = activeCategoryFilters.length + activeSourceFilters.length + 
-            (showUntaggedOnly ? 1 : 0) + excludedCategories.length + (timeFilter !== 'all' ? 1 : 0);
+            (showUntaggedOnly ? 1 : 0) + excludedCategories.length + excludedOwners.length + (timeFilter !== 'all' ? 1 : 0);
         
         // Update badge
         if (badge) {
@@ -1195,6 +1283,10 @@
         if (excludedCategories.length > 0) {
             container.appendChild(createFilterChip(`Hiding ${excludedCategories.length} tags`, '#EF4444', '🚫', 'excluded'));
         }
+        // Excluded users chip
+        if (excludedOwners.length > 0) {
+            container.appendChild(createFilterChip(`Hiding ${excludedOwners.length} users`, '#EF4444', '🙈', 'excluded_users'));
+        }
         
         // Time filter chip
         if (timeFilter !== 'all') {
@@ -1225,6 +1317,9 @@
                 showUntaggedOnly = false;
             } else if (type === 'excluded') {
                 excludedCategories = [];
+                updateExcludeButton();
+            } else if (type === 'excluded_users') {
+                excludedOwners = [];
                 updateExcludeButton();
             } else if (type === 'time') {
                 timeFilter = 'all';
@@ -1289,6 +1384,13 @@
                 // Check time filter
                 else if (timeThreshold > 0 && rowDate > 0 && rowDate < timeThreshold) {
                     shouldShow = false;
+                }
+                // Check excluded owners/users
+                else if (excludedOwners.length > 0) {
+                    const owner = row.getAttribute('data-seer-owner') || '';
+                    if (owner && excludedOwners.includes(owner)) {
+                        shouldShow = false;
+                    }
                 }
                 else if (showUntaggedOnly) {
                     shouldShow = !hasTags;
@@ -1535,7 +1637,7 @@
         const countEl = document.getElementById('seer-filter-count');
         if (countEl) {
             const { visible, total } = currentFilterStats;
-            const hasFilters = activeCategoryFilters.length > 0 || activeSourceFilters.length > 0 || showUntaggedOnly;
+            const hasFilters = activeCategoryFilters.length > 0 || activeSourceFilters.length > 0 || showUntaggedOnly || excludedCategories.length > 0 || excludedOwners.length > 0 || timeFilter !== 'all';
             
             if (hasFilters) {
                 countEl.textContent = `Showing ${visible} of ${total} agents`;
