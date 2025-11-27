@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat Export
 // @namespace    http://tampermonkey.net/
-// @version      2.5.0
+// @version      2.6.0
 // @description  Export NinjaCat agent chats to PDF (print) or Markdown, with expand/collapse controls
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents/*/chat/*
@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Chat Export] Script loaded v2.5.0');
+    console.log('[NinjaCat Chat Export] Script loaded v2.6.0');
 
     let exportButtonAdded = false;
     let printEnhancementsAdded = false;
@@ -339,160 +339,167 @@
         });
     }
 
-    // ---- Export Controls ----
+    // ---- Export Controls (Floating Menu) ----
     function addExportControls() {
-        let insertTarget = document.querySelector('.flex.text-blue-100.items-center.py-\\[15px\\]');
-        if (!insertTarget) {
-            insertTarget = document.querySelector('#assistants-ui .flex.text-blue-100');
-        }
-        if (!insertTarget) {
-            insertTarget = document.querySelector('#assistants-ui > div > div');
-        }
-
-        if (!insertTarget || !insertTarget.parentElement) {
-            console.log('[NinjaCat Chat Export] Could not find header area');
+        const chatContainer = document.querySelector('#assistants-ui');
+        if (!chatContainer) {
+            console.log('[NinjaCat Chat Export] Could not find chat container');
             return;
         }
 
-        const controls = document.createElement('div');
-        controls.id = 'ninjacat-export-controls';
-        controls.style.cssText = `
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-left: 16px;
-            padding: 8px 0;
-            flex-wrap: wrap;
+        // Create floating button container
+        const container = document.createElement('div');
+        container.id = 'ninjacat-export-controls';
+        container.style.cssText = `
+            position: fixed;
+            top: 80px;
+            right: 340px;
+            z-index: 9999;
         `;
 
-        const pdfBtn = createButton(
-            '📄 Print PDF',
-            'Print to PDF (Ctrl+P, then "Save as PDF")\nTip: Use Expand All first to include all tasks',
-            '#3B82F6',
-            handlePDFExport
-        );
-        pdfBtn.id = 'ninjacat-pdf-btn';
-
-        const mdBtn = createButton(
-            '📝 Markdown',
-            'Export as Markdown file (Ctrl+Shift+M)',
-            '#10B981',
-            handleMarkdownExport
-        );
-        mdBtn.id = 'ninjacat-md-btn';
-
-        const copyBtn = createButton(
-            '📋 Copy',
-            'Copy conversation to clipboard as plain text (Ctrl+Shift+C)',
-            '#8B5CF6',
-            handleCopyToClipboard
-        );
-        copyBtn.id = 'ninjacat-copy-btn';
-
-        const expandBtn = createButton(
-            '▼ Expand All',
-            'Expand all task sections before export',
-            '#6B7280',
-            () => {
-                toggleAllTasks(true);
-                showButtonFeedback(expandBtn, '✓ Expanded', '#10B981');
-            }
-        );
-        expandBtn.id = 'ninjacat-expand-btn';
-
-        const collapseBtn = createButton(
-            '▲ Collapse All',
-            'Collapse all task sections',
-            '#6B7280',
-            () => {
-                toggleAllTasks(false);
-                showButtonFeedback(collapseBtn, '✓ Collapsed', '#10B981');
-            }
-        );
-        collapseBtn.id = 'ninjacat-collapse-btn';
-
-        controls.appendChild(pdfBtn);
-        controls.appendChild(mdBtn);
-        controls.appendChild(copyBtn);
-        controls.appendChild(createSeparator());
-        controls.appendChild(expandBtn);
-        controls.appendChild(collapseBtn);
-
-        insertTarget.parentElement.insertBefore(controls, insertTarget.nextSibling);
-        console.log('[NinjaCat Chat Export] Export controls added');
-    }
-
-    function createButton(text, title, bgColor, onClick) {
-        const btn = document.createElement('button');
-        btn.innerHTML = text;
-        btn.title = title;
-        btn.dataset.originalText = text;
-        btn.dataset.originalBg = bgColor;
-        btn.style.cssText = `
-            background: ${bgColor};
+        // Create main trigger button (icon)
+        const triggerBtn = document.createElement('button');
+        triggerBtn.id = 'ninjacat-export-trigger';
+        triggerBtn.innerHTML = `
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="12" y1="18" x2="12" y2="12"></line>
+                <line x1="9" y1="15" x2="15" y2="15"></line>
+            </svg>
+        `;
+        triggerBtn.title = 'Export Chat';
+        triggerBtn.style.cssText = `
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #3B82F6;
             color: white;
             border: none;
-            border-radius: 6px;
-            padding: 6px 12px;
-            font-size: 12px;
-            font-weight: 600;
             cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
             transition: all 0.2s;
-            white-space: nowrap;
-            min-width: 80px;
         `;
-        btn.onmouseenter = () => {
-            if (!btn.disabled) btn.style.opacity = '0.85';
+        triggerBtn.onmouseenter = () => { triggerBtn.style.transform = 'scale(1.05)'; };
+        triggerBtn.onmouseleave = () => { triggerBtn.style.transform = 'scale(1)'; };
+
+        // Create dropdown menu
+        const dropdown = document.createElement('div');
+        dropdown.id = 'ninjacat-export-dropdown';
+        dropdown.style.cssText = `
+            position: absolute;
+            top: 45px;
+            right: 0;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            min-width: 180px;
+            display: none;
+            overflow: hidden;
+        `;
+
+        // Menu items
+        const menuItems = [
+            { icon: '📄', text: 'Print PDF', shortcut: '', action: handlePDFExport, id: 'ninjacat-pdf-btn' },
+            { icon: '📝', text: 'Markdown', shortcut: 'Ctrl+Shift+M', action: handleMarkdownExport, id: 'ninjacat-md-btn' },
+            { icon: '📋', text: 'Copy Text', shortcut: 'Ctrl+Shift+C', action: handleCopyToClipboard, id: 'ninjacat-copy-btn' },
+            { type: 'divider' },
+            { icon: '▼', text: 'Expand All', shortcut: '', action: () => handleExpandAll(dropdown), id: 'ninjacat-expand-btn' },
+            { icon: '▲', text: 'Collapse All', shortcut: '', action: () => handleCollapseAll(dropdown), id: 'ninjacat-collapse-btn' },
+        ];
+
+        menuItems.forEach(item => {
+            if (item.type === 'divider') {
+                const divider = document.createElement('div');
+                divider.style.cssText = 'height: 1px; background: #E5E7EB; margin: 4px 0;';
+                dropdown.appendChild(divider);
+                return;
+            }
+
+            const menuItem = document.createElement('button');
+            menuItem.id = item.id;
+            menuItem.style.cssText = `
+                display: flex;
+                align-items: center;
+                width: 100%;
+                padding: 10px 14px;
+                border: none;
+                background: transparent;
+                cursor: pointer;
+                font-size: 13px;
+                color: #374151;
+                text-align: left;
+                transition: background 0.15s;
+            `;
+            menuItem.innerHTML = `
+                <span style="margin-right: 10px; font-size: 14px;">${item.icon}</span>
+                <span style="flex: 1;">${item.text}</span>
+                ${item.shortcut ? `<span style="font-size: 10px; color: #9CA3AF;">${item.shortcut}</span>` : ''}
+            `;
+            menuItem.onmouseenter = () => { menuItem.style.background = '#F3F4F6'; };
+            menuItem.onmouseleave = () => { menuItem.style.background = 'transparent'; };
+            menuItem.onclick = (e) => {
+                e.stopPropagation();
+                item.action();
+                // Close dropdown after action (except for expand/collapse which show feedback)
+                if (!item.id.includes('expand') && !item.id.includes('collapse')) {
+                    dropdown.style.display = 'none';
+                }
+            };
+            dropdown.appendChild(menuItem);
+        });
+
+        // Toggle dropdown on click
+        triggerBtn.onclick = (e) => {
+            e.stopPropagation();
+            dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
         };
-        btn.onmouseleave = () => {
-            if (!btn.disabled) btn.style.opacity = '1';
-        };
-        btn.onclick = onClick;
-        return btn;
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', () => {
+            dropdown.style.display = 'none';
+        });
+
+        container.appendChild(triggerBtn);
+        container.appendChild(dropdown);
+        document.body.appendChild(container);
+
+        console.log('[NinjaCat Chat Export] Export controls added (floating menu)');
     }
 
-    function createSeparator() {
-        const sep = document.createElement('div');
-        sep.style.cssText = `
-            width: 1px;
-            height: 20px;
-            background: #E5E7EB;
-            margin: 0 4px;
-        `;
-        return sep;
-    }
-
-    // ---- Button Feedback ----
-    function showButtonFeedback(btn, text, color, duration = 1500) {
-        const originalText = btn.dataset.originalText;
-        const originalBg = btn.dataset.originalBg;
-
-        btn.innerHTML = text;
-        btn.style.background = color;
-        btn.disabled = true;
-        btn.style.cursor = 'default';
-
+    function handleExpandAll(dropdown) {
+        const btn = document.getElementById('ninjacat-expand-btn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = `<span style="margin-right: 10px; font-size: 14px;">⏳</span><span style="flex: 1;">Expanding...</span>`;
+        
+        toggleAllTasks(true);
+        
         setTimeout(() => {
-            btn.innerHTML = originalText;
-            btn.style.background = originalBg;
-            btn.disabled = false;
-            btn.style.cursor = 'pointer';
-        }, duration);
+            btn.innerHTML = `<span style="margin-right: 10px; font-size: 14px;">✓</span><span style="flex: 1;">Expanded!</span>`;
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                dropdown.style.display = 'none';
+            }, 1000);
+        }, 500);
     }
 
-    function showButtonLoading(btn, text = 'Working...') {
-        btn.innerHTML = text;
-        btn.disabled = true;
-        btn.style.cursor = 'wait';
-        btn.style.opacity = '0.7';
-    }
-
-    function resetButton(btn) {
-        btn.innerHTML = btn.dataset.originalText;
-        btn.style.background = btn.dataset.originalBg;
-        btn.disabled = false;
-        btn.style.cursor = 'pointer';
-        btn.style.opacity = '1';
+    function handleCollapseAll(dropdown) {
+        const btn = document.getElementById('ninjacat-collapse-btn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = `<span style="margin-right: 10px; font-size: 14px;">⏳</span><span style="flex: 1;">Collapsing...</span>`;
+        
+        toggleAllTasks(false);
+        
+        setTimeout(() => {
+            btn.innerHTML = `<span style="margin-right: 10px; font-size: 14px;">✓</span><span style="flex: 1;">Collapsed!</span>`;
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                dropdown.style.display = 'none';
+            }, 1000);
+        }, 500);
     }
 
     // ---- Keyboard Shortcuts ----
@@ -571,11 +578,30 @@
             return toggledCount;
         }
 
+        // Method 3: Toggle elements with display:none style (code blocks, query tabs)
+        // Find clickable elements near hidden content
+        function toggleDisplayNone() {
+            let toggledCount = 0;
+            
+            // Look for tab-like interfaces with aria-selected
+            const tabs = document.querySelectorAll('[aria-selected="false"].cursor-pointer');
+            tabs.forEach(tab => {
+                if (expand) {
+                    // Click inactive tabs to reveal their content
+                    tab.click();
+                    toggledCount++;
+                }
+            });
+
+            return toggledCount;
+        }
+
         // Combined toggle function
         function doToggle() {
             const count1 = toggleDataCollapsed();
             const count2 = toggleOverflowHidden();
-            return count1 + count2;
+            const count3 = toggleDisplayNone();
+            return count1 + count2 + count3;
         }
 
         // First pass - expand top-level items
@@ -606,45 +632,35 @@
 
     // ---- Handlers ----
     function handlePDFExport() {
-        const btn = document.getElementById('ninjacat-pdf-btn');
-        showButtonLoading(btn, '📄 Preparing...');
-
         addPrintEnhancements();
-
         setTimeout(() => {
-            resetButton(btn);
             window.print();
         }, 150);
     }
 
     function handleMarkdownExport() {
-        const btn = document.getElementById('ninjacat-md-btn');
-        showButtonLoading(btn, '📝 Exporting...');
-
-        setTimeout(() => {
-            try {
-                exportToMarkdown();
-                showButtonFeedback(btn, '✓ Downloaded', '#10B981');
-            } catch (e) {
-                console.error('[NinjaCat Chat Export] Markdown export error:', e);
-                showButtonFeedback(btn, '✗ Error', '#EF4444');
-            }
-        }, 100);
+        try {
+            exportToMarkdown();
+            console.log('[NinjaCat Chat Export] Markdown exported');
+        } catch (e) {
+            console.error('[NinjaCat Chat Export] Markdown export error:', e);
+            alert('Export failed. Check console for details.');
+        }
     }
 
     function handleCopyToClipboard() {
-        const btn = document.getElementById('ninjacat-copy-btn');
-        showButtonLoading(btn, '📋 Copying...');
-
-        setTimeout(() => {
-            try {
-                copyToClipboard();
-                showButtonFeedback(btn, '✓ Copied!', '#10B981');
-            } catch (e) {
-                console.error('[NinjaCat Chat Export] Copy error:', e);
-                showButtonFeedback(btn, '✗ Error', '#EF4444');
+        try {
+            copyToClipboard();
+            // Show brief visual feedback
+            const trigger = document.getElementById('ninjacat-export-trigger');
+            if (trigger) {
+                trigger.style.background = '#10B981';
+                setTimeout(() => { trigger.style.background = '#3B82F6'; }, 1000);
             }
-        }, 100);
+        } catch (e) {
+            console.error('[NinjaCat Chat Export] Copy error:', e);
+            alert('Copy failed. Check console for details.');
+        }
     }
 
     // ---- Helper Functions ----
