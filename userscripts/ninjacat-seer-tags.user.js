@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.9.0
+// @version      2.0.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.9.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.0.0');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -358,24 +358,30 @@
     function extractOwnerFromRow(row) {
         const text = row.textContent || '';
         
-        // Match "by [Name]" pattern
+        // Match "by [Name]" pattern for actual owner name
         const byMatch = text.match(/\bby\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
         if (byMatch) {
             return byMatch[1].trim();
         }
         
-        // Look for cells that might contain owner info
-        const cells = row.querySelectorAll('td');
-        if (cells.length >= 3) {
-            // Usually 3rd column is access/owner info
-            const accessText = cells[2]?.textContent?.trim();
-            if (accessText && (accessText.includes('by ') || /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(accessText))) {
-                const match = accessText.match(/by\s+(.+)/);
-                return match ? match[1] : accessText;
-            }
+        return null;
+    }
+
+    function isMyAgent(row) {
+        // Check for "My Agents" in the Access dropdown area
+        // The structure is: <div class="flex items-center w-full"><span>Access:</span><span><p>My Agents</p></span></div>
+        const accessEl = row.querySelector('div.flex.items-center span p, div.flex.items-center span.truncate p');
+        if (accessEl && accessEl.textContent.trim() === 'My Agents') {
+            return true;
         }
         
-        return null;
+        // Fallback: check if text contains "My Agents" in access context
+        const text = row.textContent || '';
+        if (text.includes('Access:') && text.includes('My Agents')) {
+            return true;
+        }
+        
+        return false;
     }
 
     // ---- Auto-expand pagination ----
@@ -413,9 +419,12 @@
                     const dateInfo = extractDateFromRow(card);
                     const ownerInfo = extractOwnerFromRow(card);
 
+                    const isMine = isMyAgent(card);
+                    
                     card.setAttribute('data-seer-tags', tags.map(t => t.name).join(','));
                     card.setAttribute('data-seer-datasources', sources.join(','));
                     card.setAttribute('data-seer-has-tags', tags.length > 0 ? 'true' : 'false');
+                    card.setAttribute('data-seer-is-mine', isMine ? 'true' : 'false');
                     if (agentName) card.setAttribute('data-seer-agent-name', agentName);
                     if (dateInfo.timestamp) card.setAttribute('data-seer-date', dateInfo.timestamp);
                     if (dateInfo.text) card.setAttribute('data-seer-date-text', dateInfo.text);
@@ -650,6 +659,262 @@
         }
     }
 
+    // ---- Combined Tags Dropdown (Show + Hide) ----
+    function createTagsDropdown() {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'seer-multiselect';
+        wrapper.id = 'seer-tags-combined';
+        wrapper.style.cssText = 'position:relative;display:inline-block;';
+
+        const categories = getSortedCategories();
+        const showCount = activeCategoryFilters.length + (showUntaggedOnly ? 1 : 0);
+        const hideCount = excludedCategories.length;
+        const totalActive = showCount + hideCount;
+        
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'seer-multiselect-btn';
+        const displayLabel = totalActive > 0 ? `Tags (${totalActive})` : 'Tags';
+        button.innerHTML = `${displayLabel} <span style="margin-left:4px;font-size:10px;">▼</span>`;
+        
+        // Color based on state: blue for show, red for hide, purple for both
+        let bgColor = '#fff', textColor = '#374151', borderColor = '#D1D5DB';
+        if (showCount > 0 && hideCount > 0) {
+            bgColor = '#7C3AED'; textColor = '#fff'; borderColor = '#7C3AED'; // purple for both
+        } else if (hideCount > 0) {
+            bgColor = '#EF4444'; textColor = '#fff'; borderColor = '#EF4444'; // red for hide
+        } else if (showCount > 0) {
+            bgColor = '#3B82F6'; textColor = '#fff'; borderColor = '#3B82F6'; // blue for show
+        }
+        button.style.cssText = `background:${bgColor};color:${textColor};border:1px solid ${borderColor};border-radius:6px;padding:6px 12px;font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;min-width:80px;text-align:left;`;
+
+        const dropdown = document.createElement('div');
+        dropdown.className = 'seer-multiselect-dropdown';
+        dropdown.style.cssText = 'display:none;position:absolute;top:100%;left:0;min-width:260px;max-height:400px;overflow-y:auto;background:white;border:1px solid #E5E7EB;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:10002;margin-top:4px;';
+
+        function renderDropdown() {
+            dropdown.innerHTML = '';
+            
+            // Search input
+            const searchWrapper = document.createElement('div');
+            searchWrapper.style.cssText = 'padding:8px;border-bottom:1px solid #E5E7EB;position:sticky;top:0;background:white;z-index:1;';
+            const searchInput = document.createElement('input');
+            searchInput.type = 'text';
+            searchInput.placeholder = 'Search tags...';
+            searchInput.style.cssText = 'width:100%;padding:6px 8px;border:1px solid #E5E7EB;border-radius:4px;font-size:12px;box-sizing:border-box;';
+            searchInput.onclick = (e) => e.stopPropagation();
+            searchWrapper.appendChild(searchInput);
+            dropdown.appendChild(searchWrapper);
+
+            // SHOW section
+            const showSection = document.createElement('div');
+            showSection.style.cssText = 'border-bottom:1px solid #E5E7EB;';
+            
+            const showHeader = document.createElement('div');
+            showHeader.style.cssText = 'padding:8px 12px;background:#F0FDF4;font-size:11px;font-weight:600;color:#166534;display:flex;justify-content:space-between;align-items:center;';
+            showHeader.innerHTML = '<span>✓ SHOW ONLY</span>';
+            
+            const showActions = document.createElement('div');
+            showActions.style.cssText = 'display:flex;gap:4px;';
+            const showAllBtn = document.createElement('button');
+            showAllBtn.textContent = 'All';
+            showAllBtn.style.cssText = 'padding:2px 6px;border:1px solid #BBF7D0;border-radius:3px;font-size:10px;cursor:pointer;background:white;';
+            showAllBtn.onclick = (e) => {
+                e.stopPropagation();
+                activeCategoryFilters = categories.map(([k, c]) => c.name);
+                showUntaggedOnly = false;
+                applyFilters();
+                renderDropdown();
+                updateButton();
+            };
+            const showNoneBtn = document.createElement('button');
+            showNoneBtn.textContent = 'None';
+            showNoneBtn.style.cssText = 'padding:2px 6px;border:1px solid #BBF7D0;border-radius:3px;font-size:10px;cursor:pointer;background:white;';
+            showNoneBtn.onclick = (e) => {
+                e.stopPropagation();
+                activeCategoryFilters = [];
+                showUntaggedOnly = false;
+                applyFilters();
+                renderDropdown();
+                updateButton();
+            };
+            showActions.appendChild(showAllBtn);
+            showActions.appendChild(showNoneBtn);
+            showHeader.appendChild(showActions);
+            showSection.appendChild(showHeader);
+
+            const showList = document.createElement('div');
+            showList.style.cssText = 'padding:4px 0;';
+            
+            // Add Untagged option
+            const untaggedEl = createTagOption('❓', 'Untagged', '#9CA3AF', showUntaggedOnly, (checked) => {
+                showUntaggedOnly = checked;
+                if (checked) activeCategoryFilters = [];
+                applyFilters();
+                renderDropdown();
+                updateButton();
+            }, searchInput);
+            showList.appendChild(untaggedEl);
+            
+            categories.forEach(([key, cat]) => {
+                const isSelected = activeCategoryFilters.includes(cat.name);
+                const optEl = createTagOption(cat.icon, cat.name, cat.color, isSelected, (checked) => {
+                    if (checked) {
+                        activeCategoryFilters = [...activeCategoryFilters, cat.name];
+                        showUntaggedOnly = false;
+                    } else {
+                        activeCategoryFilters = activeCategoryFilters.filter(f => f !== cat.name);
+                    }
+                    applyFilters();
+                    renderDropdown();
+                    updateButton();
+                }, searchInput);
+                showList.appendChild(optEl);
+            });
+            showSection.appendChild(showList);
+            dropdown.appendChild(showSection);
+
+            // HIDE section
+            const hideSection = document.createElement('div');
+            
+            const hideHeader = document.createElement('div');
+            hideHeader.style.cssText = 'padding:8px 12px;background:#FEF2F2;font-size:11px;font-weight:600;color:#991B1B;display:flex;justify-content:space-between;align-items:center;';
+            hideHeader.innerHTML = '<span>🚫 HIDE</span>';
+            
+            const hideActions = document.createElement('div');
+            hideActions.style.cssText = 'display:flex;gap:4px;';
+            const hideNoneBtn = document.createElement('button');
+            hideNoneBtn.textContent = 'None';
+            hideNoneBtn.style.cssText = 'padding:2px 6px;border:1px solid #FECACA;border-radius:3px;font-size:10px;cursor:pointer;background:white;';
+            hideNoneBtn.onclick = (e) => {
+                e.stopPropagation();
+                excludedCategories = [];
+                applyFilters();
+                renderDropdown();
+                updateButton();
+            };
+            hideActions.appendChild(hideNoneBtn);
+            hideHeader.appendChild(hideActions);
+            hideSection.appendChild(hideHeader);
+
+            const hideList = document.createElement('div');
+            hideList.style.cssText = 'padding:4px 0;';
+            
+            categories.forEach(([key, cat]) => {
+                const isExcluded = excludedCategories.includes(cat.name);
+                const optEl = createTagOption(cat.icon, cat.name, cat.color, isExcluded, (checked) => {
+                    if (checked) {
+                        excludedCategories = [...excludedCategories, cat.name];
+                    } else {
+                        excludedCategories = excludedCategories.filter(f => f !== cat.name);
+                    }
+                    applyFilters();
+                    renderDropdown();
+                    updateButton();
+                }, searchInput, true);
+                hideList.appendChild(optEl);
+            });
+            hideSection.appendChild(hideList);
+            dropdown.appendChild(hideSection);
+
+            // Filter on search
+            searchInput.oninput = () => {
+                const filter = searchInput.value.toLowerCase();
+                showList.querySelectorAll('.seer-tag-option').forEach(el => {
+                    const label = el.getAttribute('data-label').toLowerCase();
+                    el.style.display = label.includes(filter) ? 'flex' : 'none';
+                });
+                hideList.querySelectorAll('.seer-tag-option').forEach(el => {
+                    const label = el.getAttribute('data-label').toLowerCase();
+                    el.style.display = label.includes(filter) ? 'flex' : 'none';
+                });
+            };
+        }
+
+        function createTagOption(icon, label, color, isChecked, onChange, searchInput, isHide = false) {
+            const optionEl = document.createElement('label');
+            optionEl.className = 'seer-tag-option';
+            optionEl.setAttribute('data-label', label);
+            const bgChecked = isHide ? '#FEE2E2' : '#EFF6FF';
+            optionEl.style.cssText = `display:flex;align-items:center;padding:6px 12px;cursor:pointer;transition:background 0.1s;gap:8px;${isChecked ? `background:${bgChecked};` : ''}`;
+            optionEl.onmouseenter = () => optionEl.style.background = isChecked ? (isHide ? '#FECACA' : '#DBEAFE') : '#F9FAFB';
+            optionEl.onmouseleave = () => optionEl.style.background = isChecked ? bgChecked : '';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = isChecked;
+            checkbox.style.cssText = 'width:14px;height:14px;cursor:pointer;flex-shrink:0;';
+            checkbox.onclick = (e) => e.stopPropagation();
+            checkbox.onchange = () => onChange(checkbox.checked);
+
+            const iconSpan = document.createElement('span');
+            iconSpan.textContent = icon;
+            iconSpan.style.cssText = 'font-size:14px;flex-shrink:0;';
+
+            const colorDot = document.createElement('span');
+            colorDot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;`;
+
+            const labelText = document.createElement('span');
+            labelText.textContent = label;
+            labelText.style.cssText = 'font-size:12px;flex:1;';
+
+            optionEl.appendChild(checkbox);
+            optionEl.appendChild(colorDot);
+            optionEl.appendChild(iconSpan);
+            optionEl.appendChild(labelText);
+            return optionEl;
+        }
+
+        function updateButton() {
+            const showCount = activeCategoryFilters.length + (showUntaggedOnly ? 1 : 0);
+            const hideCount = excludedCategories.length;
+            const totalActive = showCount + hideCount;
+            const displayLabel = totalActive > 0 ? `Tags (${totalActive})` : 'Tags';
+            button.innerHTML = `${displayLabel} <span style="margin-left:4px;font-size:10px;">▼</span>`;
+            
+            let bgColor = '#fff', textColor = '#374151', borderColor = '#D1D5DB';
+            if (showCount > 0 && hideCount > 0) {
+                bgColor = '#7C3AED'; textColor = '#fff'; borderColor = '#7C3AED';
+            } else if (hideCount > 0) {
+                bgColor = '#EF4444'; textColor = '#fff'; borderColor = '#EF4444';
+            } else if (showCount > 0) {
+                bgColor = '#3B82F6'; textColor = '#fff'; borderColor = '#3B82F6';
+            }
+            button.style.background = bgColor;
+            button.style.color = textColor;
+            button.style.borderColor = borderColor;
+            
+            updateActiveFiltersDisplay();
+        }
+
+        renderDropdown();
+
+        // Toggle dropdown
+        let isOpen = false;
+        button.onclick = (e) => {
+            e.stopPropagation();
+            isOpen = !isOpen;
+            dropdown.style.display = isOpen ? 'block' : 'none';
+            if (isOpen) {
+                dropdown.querySelector('input')?.focus();
+                document.querySelectorAll('.seer-multiselect-dropdown').forEach(d => {
+                    if (d !== dropdown) d.style.display = 'none';
+                });
+            }
+        };
+
+        document.addEventListener('click', (e) => {
+            if (!wrapper.contains(e.target)) {
+                dropdown.style.display = 'none';
+                isOpen = false;
+            }
+        });
+
+        wrapper.appendChild(button);
+        wrapper.appendChild(dropdown);
+        return wrapper;
+    }
+
     // ---- Multi-Select Dropdown Component ----
     function createMultiSelect(id, label, options, selectedValues, onChange, opts = {}) {
         const wrapper = document.createElement('div');
@@ -874,30 +1139,8 @@
             const filtersRow = document.createElement('div');
             filtersRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
 
-            // Tags multi-select
-            const tagOptions = getSortedCategories().map(([key, cat]) => ({
-                value: cat.name,
-                label: cat.name,
-                icon: cat.icon,
-                color: cat.color
-            }));
-            tagOptions.push({ value: '__untagged__', label: 'Untagged', icon: '❓', color: '#9CA3AF' });
-
-            const tagsSelect = createMultiSelect('seer-tags-select', 'Tags', tagOptions, 
-                showUntaggedOnly ? ['__untagged__'] : activeCategoryFilters,
-                (values) => {
-                    if (values.includes('__untagged__')) {
-                        showUntaggedOnly = true;
-                        activeCategoryFilters = [];
-                    } else {
-                        showUntaggedOnly = false;
-                        activeCategoryFilters = values;
-                    }
-                    applyFilters();
-                    updateActiveFiltersDisplay();
-                }
-            );
-            tagsSelect.id = 'seer-tags-multiselect';
+            // Combined Tags dropdown (Show + Hide)
+            const tagsSelect = createTagsDropdown();
 
             // Data Sources multi-select
             const sourceOptions = getSortedDataSources().map(([key, src]) => ({
@@ -916,39 +1159,17 @@
             );
             sourcesSelect.id = 'seer-sources-multiselect';
 
-            // Owners multi-select (populated dynamically)
-            const ownersSelect = createMultiSelect('seer-owners-select', 'Owners', [],
-                [],
+            // Hide Users multi-select (populated dynamically)
+            const hideUsersSelect = createMultiSelect('seer-hide-users-select', 'Hide Users', [],
+                excludedOwners,
                 (values) => {
-                    // This will be updated after rows are tagged
-                }
-            );
-            ownersSelect.id = 'seer-owners-multiselect';
-            ownersSelect.style.display = 'none'; // Hidden until owners detected
-
-            // Hide Tags multi-select (exclusion)
-            const hideTagOptions = getSortedCategories().map(([key, cat]) => ({
-                value: cat.name,
-                label: cat.name,
-                icon: cat.icon,
-                color: cat.color
-            }));
-            const hideTagsSelect = createMultiSelect('seer-hide-tags', 'Hide Tags', hideTagOptions,
-                excludedCategories,
-                (values) => {
-                    excludedCategories = values;
+                    excludedOwners = values;
                     applyFilters();
                     updateActiveFiltersDisplay();
                 }
             );
-            hideTagsSelect.id = 'seer-hide-tags-multiselect';
-            // Style as red when active
-            const hideTagsBtn = hideTagsSelect.querySelector('.seer-multiselect-btn');
-            if (excludedCategories.length > 0) {
-                hideTagsBtn.style.background = '#EF4444';
-                hideTagsBtn.style.borderColor = '#EF4444';
-                hideTagsBtn.style.color = '#fff';
-            }
+            hideUsersSelect.id = 'seer-hide-users-multiselect';
+            hideUsersSelect.style.display = 'none'; // Hidden until owners detected
 
             // Time filter (simple select)
             const timeSelect = document.createElement('select');
@@ -1002,8 +1223,7 @@
 
             filtersRow.appendChild(tagsSelect);
             filtersRow.appendChild(sourcesSelect);
-            filtersRow.appendChild(hideTagsSelect);
-            filtersRow.appendChild(ownersSelect);
+            filtersRow.appendChild(hideUsersSelect);
             filtersRow.appendChild(timeSelect);
             filtersRow.appendChild(sortSelect);
             filtersRow.appendChild(groupSelect);
@@ -1015,9 +1235,169 @@
             insertFilterBar(bar);
 
             updateActiveFiltersDisplay();
+            
+            // Add collapsible sections
+            setTimeout(() => {
+                addCollapsibleFavorites();
+                addMyAgentsSection();
+            }, 500);
+            
             console.log('[NinjaCat Seer Tags] Compact filter bar inserted');
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in addTagFilterBar:', error);
+        }
+    }
+
+    // ---- Collapsible Favorites Section ----
+    function addCollapsibleFavorites() {
+        // Find the Favorites header
+        const favoritesHeader = Array.from(document.querySelectorAll('h2, h3, div')).find(el => 
+            el.textContent.trim() === 'Favorites' && !el.querySelector('.seer-collapse-btn')
+        );
+        
+        if (!favoritesHeader) return;
+        
+        // Check if already processed
+        if (favoritesHeader.querySelector('.seer-collapse-btn')) return;
+        
+        // Load saved state
+        const savedState = localStorage.getItem('seer-favorites-collapsed');
+        let isCollapsed = savedState === 'true';
+        
+        // Style the header to be clickable
+        favoritesHeader.style.cssText = 'cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;';
+        
+        // Add collapse indicator
+        const collapseBtn = document.createElement('span');
+        collapseBtn.className = 'seer-collapse-btn';
+        collapseBtn.textContent = isCollapsed ? '▶' : '▼';
+        collapseBtn.style.cssText = 'font-size:12px;color:#6B7280;transition:transform 0.2s;';
+        favoritesHeader.insertBefore(collapseBtn, favoritesHeader.firstChild);
+        
+        // Find the favorites content (cards container after header)
+        let favoritesContent = favoritesHeader.nextElementSibling;
+        while (favoritesContent && !favoritesContent.querySelector('[class*="grid"], [class*="flex"]')) {
+            favoritesContent = favoritesContent.nextElementSibling;
+        }
+        
+        if (!favoritesContent) {
+            // Try parent's next sibling
+            favoritesContent = favoritesHeader.parentElement?.nextElementSibling;
+        }
+        
+        if (favoritesContent) {
+            // Apply initial state
+            if (isCollapsed) {
+                favoritesContent.style.display = 'none';
+            }
+            
+            // Toggle on click
+            favoritesHeader.onclick = () => {
+                isCollapsed = !isCollapsed;
+                collapseBtn.textContent = isCollapsed ? '▶' : '▼';
+                favoritesContent.style.display = isCollapsed ? 'none' : '';
+                localStorage.setItem('seer-favorites-collapsed', isCollapsed.toString());
+            };
+        }
+    }
+
+    // ---- My Agents Pinned Section ----
+    function addMyAgentsSection() {
+        // Check if already added
+        if (document.getElementById('seer-my-agents-section')) return;
+        
+        const allAgentsHeader = Array.from(document.querySelectorAll('h2, h3, div')).find(el => 
+            el.textContent.trim() === 'All Agents'
+        );
+        
+        if (!allAgentsHeader) return;
+        
+        // Get all rows and find "My Agents"
+        const rows = getAgentRows(false);
+        const myAgentRows = rows.filter(row => row.getAttribute('data-seer-is-mine') === 'true');
+        
+        if (myAgentRows.length === 0) return;
+        
+        // Load saved state
+        const savedState = localStorage.getItem('seer-my-agents-collapsed');
+        let isCollapsed = savedState === 'true';
+        
+        // Create section container
+        const section = document.createElement('div');
+        section.id = 'seer-my-agents-section';
+        section.style.cssText = 'margin-bottom:16px;background:#FEFCE8;border:1px solid #FEF08A;border-radius:8px;padding:12px;';
+        
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;margin-bottom:8px;';
+        header.innerHTML = `
+            <span class="seer-my-collapse" style="font-size:12px;color:#854D0E;">${isCollapsed ? '▶' : '▼'}</span>
+            <span style="font-size:14px;">⭐</span>
+            <span style="font-weight:600;color:#854D0E;">My Agents</span>
+            <span style="background:#FEF08A;color:#854D0E;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;">${myAgentRows.length}</span>
+        `;
+        
+        // Content container for cloned rows
+        const content = document.createElement('div');
+        content.className = 'seer-my-agents-list';
+        content.style.cssText = `display:${isCollapsed ? 'none' : 'flex'};flex-direction:column;gap:4px;`;
+        
+        // Clone each "My Agent" row as a compact card
+        myAgentRows.forEach(row => {
+            const agentName = row.getAttribute('data-seer-agent-name') || 'Unknown';
+            const tags = row.getAttribute('data-seer-tags') || '';
+            
+            const card = document.createElement('div');
+            card.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;background:white;border-radius:6px;border:1px solid #FEF08A;cursor:pointer;transition:background 0.15s;';
+            card.onmouseenter = () => card.style.background = '#FFFBEB';
+            card.onmouseleave = () => card.style.background = 'white';
+            
+            // Click to scroll to the original row
+            card.onclick = () => {
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                row.style.background = '#FEF9C3';
+                setTimeout(() => row.style.background = '', 1500);
+            };
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = agentName;
+            nameSpan.style.cssText = 'font-size:12px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+            
+            card.appendChild(nameSpan);
+            
+            // Add mini tag badges
+            if (tags) {
+                tags.split(',').slice(0, 3).forEach(tagName => {
+                    const cat = Object.values(config.categories).find(c => c.name === tagName.trim());
+                    if (cat) {
+                        const badge = document.createElement('span');
+                        badge.textContent = cat.icon;
+                        badge.title = cat.name;
+                        badge.style.cssText = 'font-size:10px;';
+                        card.appendChild(badge);
+                    }
+                });
+            }
+            
+            content.appendChild(card);
+        });
+        
+        header.onclick = () => {
+            isCollapsed = !isCollapsed;
+            header.querySelector('.seer-my-collapse').textContent = isCollapsed ? '▶' : '▼';
+            content.style.display = isCollapsed ? 'none' : 'flex';
+            localStorage.setItem('seer-my-agents-collapsed', isCollapsed.toString());
+        };
+        
+        section.appendChild(header);
+        section.appendChild(content);
+        
+        // Insert before "All Agents" header
+        const filterBar = document.getElementById('seer-tag-bar');
+        if (filterBar && filterBar.nextSibling) {
+            filterBar.parentElement.insertBefore(section, filterBar.nextSibling);
+        } else if (allAgentsHeader.parentElement) {
+            allAgentsHeader.parentElement.insertBefore(section, allAgentsHeader);
         }
     }
 
@@ -1068,7 +1448,7 @@
     }
 
     function updateOwnersDropdown() {
-        const ownersWrapper = document.getElementById('seer-owners-multiselect');
+        const ownersWrapper = document.getElementById('seer-hide-users-multiselect');
         if (!ownersWrapper) return;
 
         const ownersSet = new Set();
@@ -1092,7 +1472,7 @@
             icon: '👤'
         }));
 
-        const newOwnersSelect = createMultiSelect('seer-owners-select', 'Hide Users', ownerOptions,
+        const newOwnersSelect = createMultiSelect('seer-hide-users-select', 'Hide Users', ownerOptions,
             excludedOwners,
             (values) => {
                 excludedOwners = values;
@@ -1100,7 +1480,7 @@
                 updateActiveFiltersDisplay();
             }
         );
-        newOwnersSelect.id = 'seer-owners-multiselect';
+        newOwnersSelect.id = 'seer-hide-users-multiselect';
         
         // Style as red when active
         if (excludedOwners.length > 0) {
