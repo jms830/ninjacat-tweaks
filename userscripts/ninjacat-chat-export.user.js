@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat Export
 // @namespace    http://tampermonkey.net/
-// @version      2.3.1
+// @version      2.4.0
 // @description  Export NinjaCat agent chats to PDF (print) or Markdown, with expand/collapse controls
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents/*/chat/*
@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Chat Export] Script loaded v2.3.1');
+    console.log('[NinjaCat Chat Export] Script loaded v2.4.0');
 
     let exportButtonAdded = false;
     let printEnhancementsAdded = false;
@@ -514,7 +514,8 @@
     function toggleAllTasks(expand) {
         let totalToggled = 0;
 
-        function doToggle() {
+        // Method 1: Toggle elements with data-is-collapsed attribute
+        function toggleDataCollapsed() {
             const toggles = document.querySelectorAll('[data-is-collapsed]');
             let toggledCount = 0;
 
@@ -533,25 +534,71 @@
             return toggledCount;
         }
 
+        // Method 2: Toggle overflow-hidden elements (subtasks within Tasks Completed)
+        // These use height:0 when collapsed, height:auto when expanded
+        function toggleOverflowHidden() {
+            const overflowElements = document.querySelectorAll('.overflow-hidden');
+            let toggledCount = 0;
+
+            overflowElements.forEach(el => {
+                const computedHeight = el.style.height;
+                const isCollapsed = computedHeight === '0px' || computedHeight === '0';
+                const isExpanded = computedHeight === 'auto' || (computedHeight && parseInt(computedHeight) > 0);
+
+                // Find the clickable toggle - usually a sibling or parent with cursor-pointer
+                // Look for previous sibling first (common pattern: header then content)
+                let clickTarget = el.previousElementSibling;
+                if (!clickTarget || !clickTarget.classList.contains('cursor-pointer')) {
+                    // Try parent's cursor-pointer
+                    clickTarget = el.closest('.cursor-pointer');
+                }
+                if (!clickTarget) {
+                    // Look for cursor-pointer within the parent
+                    const parent = el.parentElement;
+                    if (parent) {
+                        clickTarget = parent.querySelector('.cursor-pointer');
+                    }
+                }
+
+                if (clickTarget) {
+                    if ((expand && isCollapsed) || (!expand && isExpanded)) {
+                        clickTarget.click();
+                        toggledCount++;
+                    }
+                }
+            });
+
+            return toggledCount;
+        }
+
+        // Combined toggle function
+        function doToggle() {
+            const count1 = toggleDataCollapsed();
+            const count2 = toggleOverflowHidden();
+            return count1 + count2;
+        }
+
         // First pass - expand top-level items
         totalToggled += doToggle();
 
-        // Second pass after delay - catch nested items that appeared after first expansion
-        setTimeout(() => {
-            const nestedCount = doToggle();
-            totalToggled += nestedCount;
-            if (nestedCount > 0) {
-                console.log(`[NinjaCat Chat Export] Expanded ${nestedCount} nested task sections`);
-                
-                // Third pass for deeply nested items
-                setTimeout(() => {
-                    const deepNestedCount = doToggle();
-                    if (deepNestedCount > 0) {
-                        console.log(`[NinjaCat Chat Export] Expanded ${deepNestedCount} deeply nested sections`);
+        // Multiple passes with delays to catch nested items that appear after expansion
+        const runPass = (passNum, delay) => {
+            setTimeout(() => {
+                const count = doToggle();
+                if (count > 0) {
+                    console.log(`[NinjaCat Chat Export] Pass ${passNum}: ${expand ? 'Expanded' : 'Collapsed'} ${count} additional sections`);
+                    totalToggled += count;
+                    
+                    // Continue if we found more items (up to 5 passes)
+                    if (passNum < 5) {
+                        runPass(passNum + 1, 200);
                     }
-                }, 150);
-            }
-        }, 150);
+                }
+            }, delay);
+        };
+
+        // Start additional passes
+        runPass(2, 200);
 
         console.log(`[NinjaCat Chat Export] ${expand ? 'Expanded' : 'Collapsed'} ${totalToggled} task sections (checking for nested...)`);
         return totalToggled;
