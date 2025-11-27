@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      1.8.0
+// @version      1.9.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v1.8.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v1.9.0');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -483,6 +483,8 @@
             });
 
             applyFilters();
+            // Update owners dropdown after tagging completes
+            setTimeout(() => updateOwnersDropdown(), 100);
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in tagAgentCards:', error);
         }
@@ -648,11 +650,174 @@
         }
     }
 
+    // ---- Multi-Select Dropdown Component ----
+    function createMultiSelect(id, label, options, selectedValues, onChange, opts = {}) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'seer-multiselect';
+        wrapper.style.cssText = 'position:relative;display:inline-block;';
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'seer-multiselect-btn';
+        const count = selectedValues.length;
+        const displayLabel = count > 0 ? `${label} (${count})` : label;
+        button.innerHTML = `${displayLabel} <span style="margin-left:4px;font-size:10px;">▼</span>`;
+        button.style.cssText = `background:${count > 0 ? '#3B82F6' : '#fff'};color:${count > 0 ? '#fff' : '#374151'};border:1px solid ${count > 0 ? '#3B82F6' : '#D1D5DB'};border-radius:6px;padding:6px 12px;font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;min-width:100px;text-align:left;`;
+
+        const dropdown = document.createElement('div');
+        dropdown.className = 'seer-multiselect-dropdown';
+        dropdown.style.cssText = 'display:none;position:absolute;top:100%;left:0;min-width:200px;max-height:280px;overflow-y:auto;background:white;border:1px solid #E5E7EB;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:10002;margin-top:4px;';
+
+        // Search input
+        const searchWrapper = document.createElement('div');
+        searchWrapper.style.cssText = 'padding:8px;border-bottom:1px solid #E5E7EB;position:sticky;top:0;background:white;';
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = `Search ${label.toLowerCase()}...`;
+        searchInput.style.cssText = 'width:100%;padding:6px 8px;border:1px solid #E5E7EB;border-radius:4px;font-size:12px;box-sizing:border-box;';
+        searchInput.onclick = (e) => e.stopPropagation();
+        searchWrapper.appendChild(searchInput);
+        dropdown.appendChild(searchWrapper);
+
+        // Options list
+        const optionsList = document.createElement('div');
+        optionsList.className = 'seer-multiselect-options';
+        optionsList.style.cssText = 'padding:4px 0;';
+
+        function renderOptions(filter = '') {
+            optionsList.innerHTML = '';
+            const filterLower = filter.toLowerCase();
+            
+            // Add "Select All" / "Clear All" row
+            const actionsRow = document.createElement('div');
+            actionsRow.style.cssText = 'display:flex;gap:8px;padding:4px 8px 8px 8px;border-bottom:1px solid #E5E7EB;margin-bottom:4px;';
+            const selectAllBtn = document.createElement('button');
+            selectAllBtn.textContent = 'All';
+            selectAllBtn.style.cssText = 'flex:1;padding:4px;border:1px solid #D1D5DB;border-radius:4px;font-size:11px;cursor:pointer;background:#F3F4F6;';
+            selectAllBtn.onclick = (e) => {
+                e.stopPropagation();
+                const allValues = options.map(o => o.value);
+                onChange(allValues);
+                updateDropdown();
+            };
+            const clearAllBtn = document.createElement('button');
+            clearAllBtn.textContent = 'None';
+            clearAllBtn.style.cssText = 'flex:1;padding:4px;border:1px solid #D1D5DB;border-radius:4px;font-size:11px;cursor:pointer;background:#F3F4F6;';
+            clearAllBtn.onclick = (e) => {
+                e.stopPropagation();
+                onChange([]);
+                updateDropdown();
+            };
+            actionsRow.appendChild(selectAllBtn);
+            actionsRow.appendChild(clearAllBtn);
+            optionsList.appendChild(actionsRow);
+
+            options.forEach(opt => {
+                if (filter && !opt.label.toLowerCase().includes(filterLower)) return;
+                
+                const optionEl = document.createElement('label');
+                optionEl.style.cssText = `display:flex;align-items:center;padding:6px 12px;cursor:pointer;transition:background 0.1s;gap:8px;${selectedValues.includes(opt.value) ? 'background:#EFF6FF;' : ''}`;
+                optionEl.onmouseenter = () => optionEl.style.background = selectedValues.includes(opt.value) ? '#DBEAFE' : '#F9FAFB';
+                optionEl.onmouseleave = () => optionEl.style.background = selectedValues.includes(opt.value) ? '#EFF6FF' : '';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = selectedValues.includes(opt.value);
+                checkbox.style.cssText = 'width:14px;height:14px;cursor:pointer;flex-shrink:0;';
+                checkbox.onclick = (e) => e.stopPropagation();
+                checkbox.onchange = () => {
+                    let newValues;
+                    if (checkbox.checked) {
+                        newValues = [...selectedValues, opt.value];
+                    } else {
+                        newValues = selectedValues.filter(v => v !== opt.value);
+                    }
+                    onChange(newValues);
+                    updateDropdown();
+                };
+
+                const icon = document.createElement('span');
+                icon.textContent = opt.icon || '';
+                icon.style.cssText = 'font-size:14px;flex-shrink:0;';
+
+                const labelText = document.createElement('span');
+                labelText.textContent = opt.label;
+                labelText.style.cssText = 'font-size:12px;flex:1;';
+
+                if (opt.color) {
+                    const colorDot = document.createElement('span');
+                    colorDot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${opt.color};flex-shrink:0;`;
+                    optionEl.appendChild(checkbox);
+                    optionEl.appendChild(colorDot);
+                    if (opt.icon) optionEl.appendChild(icon);
+                    optionEl.appendChild(labelText);
+                } else {
+                    optionEl.appendChild(checkbox);
+                    if (opt.icon) optionEl.appendChild(icon);
+                    optionEl.appendChild(labelText);
+                }
+
+                optionsList.appendChild(optionEl);
+            });
+
+            if (optionsList.children.length === 1) {
+                const noResults = document.createElement('div');
+                noResults.textContent = 'No matches';
+                noResults.style.cssText = 'padding:12px;color:#9CA3AF;font-size:12px;text-align:center;';
+                optionsList.appendChild(noResults);
+            }
+        }
+
+        function updateDropdown() {
+            const newCount = selectedValues.length;
+            const newLabel = newCount > 0 ? `${label} (${newCount})` : label;
+            button.innerHTML = `${newLabel} <span style="margin-left:4px;font-size:10px;">▼</span>`;
+            button.style.background = newCount > 0 ? '#3B82F6' : '#fff';
+            button.style.color = newCount > 0 ? '#fff' : '#374151';
+            button.style.borderColor = newCount > 0 ? '#3B82F6' : '#D1D5DB';
+            renderOptions(searchInput.value);
+        }
+
+        searchInput.oninput = () => renderOptions(searchInput.value);
+        renderOptions();
+
+        dropdown.appendChild(optionsList);
+
+        // Toggle dropdown
+        let isOpen = false;
+        button.onclick = (e) => {
+            e.stopPropagation();
+            isOpen = !isOpen;
+            dropdown.style.display = isOpen ? 'block' : 'none';
+            if (isOpen) {
+                searchInput.focus();
+                // Close other dropdowns
+                document.querySelectorAll('.seer-multiselect-dropdown').forEach(d => {
+                    if (d !== dropdown) d.style.display = 'none';
+                });
+            }
+        };
+
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            if (!wrapper.contains(e.target)) {
+                dropdown.style.display = 'none';
+                isOpen = false;
+            }
+        });
+
+        wrapper.appendChild(button);
+        wrapper.appendChild(dropdown);
+        wrapper._update = updateDropdown;
+        wrapper._getSelected = () => selectedValues;
+        
+        return wrapper;
+    }
+
     // ---- Filter Bar UI ----
     function addTagFilterBar() {
         try {
             if (document.getElementById('seer-tag-bar')) {
-                updateButtonStates();
                 updateFilterCount();
                 updateActiveFiltersDisplay();
                 return;
@@ -660,410 +825,292 @@
 
             const bar = document.createElement('div');
             bar.id = 'seer-tag-bar';
-            bar.style.cssText = 'display:flex;flex-direction:column;gap:10px;margin-bottom:16px;padding:12px;background:#F9FAFB;border-radius:10px;border:1px solid #E5E7EB;';
+            bar.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:12px;padding:10px 12px;background:#FAFAFA;border-radius:8px;border:1px solid #E5E7EB;';
 
-            // Header row with count, active filter badge, and controls
-            const headerRow = createHeaderRow();
-            
-            // Active filters chips (shown when filters are active)
-            const activeFiltersRow = document.createElement('div');
-            activeFiltersRow.id = 'seer-active-filters';
-            activeFiltersRow.style.cssText = 'display:none;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid #E5E7EB;';
-            
-            // Category filters row
-            const categoryRow = createFilterRow('Filters', config.categories, 'category');
-            
-            // Data sources row (collapsible)
-            const sourceRow = createCollapsibleSourceRow();
-            
-            // Sort and Group controls
-            const sortGroupRow = createSortGroupRow();
-            
-            // Help row
-            const helpRow = createHelpRow();
+            // Row 1: Count + Active chips + Clear + Settings
+            const headerRow = document.createElement('div');
+            headerRow.id = 'seer-header-row';
+            headerRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:28px;';
+
+            const countEl = document.createElement('span');
+            countEl.id = 'seer-filter-count';
+            countEl.style.cssText = 'font-size:13px;font-weight:600;color:#374151;margin-right:4px;';
+            countEl.textContent = 'Loading...';
+
+            const chipsContainer = document.createElement('div');
+            chipsContainer.id = 'seer-active-chips';
+            chipsContainer.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;flex:1;align-items:center;';
+
+            const spacer = document.createElement('div');
+            spacer.style.cssText = 'flex:1;';
+
+            const clearBtn = document.createElement('button');
+            clearBtn.id = 'seer-clear-btn';
+            clearBtn.innerHTML = '✕ Clear';
+            clearBtn.style.cssText = 'display:none;background:#EF4444;color:white;border:none;border-radius:4px;padding:4px 8px;font-size:11px;font-weight:500;cursor:pointer;';
+            clearBtn.onclick = () => {
+                activeCategoryFilters = [];
+                activeSourceFilters = [];
+                excludedCategories = [];
+                excludedOwners = [];
+                showUntaggedOnly = false;
+                timeFilter = 'all';
+                applyFilters();
+                refreshFilterBar();
+            };
+
+            const settingsBtn = document.createElement('button');
+            settingsBtn.innerHTML = '⚙️';
+            settingsBtn.title = 'Settings';
+            settingsBtn.style.cssText = 'background:#6B7280;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer;';
+            settingsBtn.onclick = (e) => { e.stopPropagation(); openSettingsModal(); };
+
+            headerRow.appendChild(countEl);
+            headerRow.appendChild(chipsContainer);
+            headerRow.appendChild(clearBtn);
+            headerRow.appendChild(settingsBtn);
+
+            // Row 2: Compact filter dropdowns
+            const filtersRow = document.createElement('div');
+            filtersRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
+
+            // Tags multi-select
+            const tagOptions = getSortedCategories().map(([key, cat]) => ({
+                value: cat.name,
+                label: cat.name,
+                icon: cat.icon,
+                color: cat.color
+            }));
+            tagOptions.push({ value: '__untagged__', label: 'Untagged', icon: '❓', color: '#9CA3AF' });
+
+            const tagsSelect = createMultiSelect('seer-tags-select', 'Tags', tagOptions, 
+                showUntaggedOnly ? ['__untagged__'] : activeCategoryFilters,
+                (values) => {
+                    if (values.includes('__untagged__')) {
+                        showUntaggedOnly = true;
+                        activeCategoryFilters = [];
+                    } else {
+                        showUntaggedOnly = false;
+                        activeCategoryFilters = values;
+                    }
+                    applyFilters();
+                    updateActiveFiltersDisplay();
+                }
+            );
+            tagsSelect.id = 'seer-tags-multiselect';
+
+            // Data Sources multi-select
+            const sourceOptions = getSortedDataSources().map(([key, src]) => ({
+                value: src.name,
+                label: src.name,
+                icon: src.icon,
+                color: src.color
+            }));
+            const sourcesSelect = createMultiSelect('seer-sources-select', 'Sources', sourceOptions,
+                activeSourceFilters,
+                (values) => {
+                    activeSourceFilters = values;
+                    applyFilters();
+                    updateActiveFiltersDisplay();
+                }
+            );
+            sourcesSelect.id = 'seer-sources-multiselect';
+
+            // Owners multi-select (populated dynamically)
+            const ownersSelect = createMultiSelect('seer-owners-select', 'Owners', [],
+                [],
+                (values) => {
+                    // This will be updated after rows are tagged
+                }
+            );
+            ownersSelect.id = 'seer-owners-multiselect';
+            ownersSelect.style.display = 'none'; // Hidden until owners detected
+
+            // Hide Tags multi-select (exclusion)
+            const hideTagOptions = getSortedCategories().map(([key, cat]) => ({
+                value: cat.name,
+                label: cat.name,
+                icon: cat.icon,
+                color: cat.color
+            }));
+            const hideTagsSelect = createMultiSelect('seer-hide-tags', 'Hide Tags', hideTagOptions,
+                excludedCategories,
+                (values) => {
+                    excludedCategories = values;
+                    applyFilters();
+                    updateActiveFiltersDisplay();
+                }
+            );
+            hideTagsSelect.id = 'seer-hide-tags-multiselect';
+            // Style as red when active
+            const hideTagsBtn = hideTagsSelect.querySelector('.seer-multiselect-btn');
+            if (excludedCategories.length > 0) {
+                hideTagsBtn.style.background = '#EF4444';
+                hideTagsBtn.style.borderColor = '#EF4444';
+                hideTagsBtn.style.color = '#fff';
+            }
+
+            // Time filter (simple select)
+            const timeSelect = document.createElement('select');
+            timeSelect.id = 'seer-time-filter';
+            timeSelect.style.cssText = 'padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;background:white;';
+            timeSelect.innerHTML = `
+                <option value="all" ${timeFilter === 'all' ? 'selected' : ''}>All time</option>
+                <option value="today" ${timeFilter === 'today' ? 'selected' : ''}>Today</option>
+                <option value="week" ${timeFilter === 'week' ? 'selected' : ''}>Last 7 days</option>
+                <option value="month" ${timeFilter === 'month' ? 'selected' : ''}>Last 30 days</option>
+                <option value="quarter" ${timeFilter === 'quarter' ? 'selected' : ''}>Last 90 days</option>
+            `;
+            timeSelect.onchange = () => {
+                timeFilter = timeSelect.value;
+                applyFilters();
+                updateActiveFiltersDisplay();
+            };
+
+            // Sort select
+            const sortSelect = document.createElement('select');
+            sortSelect.id = 'seer-sort-select';
+            sortSelect.style.cssText = 'padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;background:white;';
+            sortSelect.innerHTML = `
+                <option value="name-asc" ${currentSort.field === 'name' && currentSort.direction === 'asc' ? 'selected' : ''}>A-Z</option>
+                <option value="name-desc" ${currentSort.field === 'name' && currentSort.direction === 'desc' ? 'selected' : ''}>Z-A</option>
+                <option value="date-desc" ${currentSort.field === 'date' && currentSort.direction === 'desc' ? 'selected' : ''}>Newest</option>
+                <option value="date-asc" ${currentSort.field === 'date' && currentSort.direction === 'asc' ? 'selected' : ''}>Oldest</option>
+            `;
+            sortSelect.onchange = () => {
+                const [field, direction] = sortSelect.value.split('-');
+                currentSort = { field, direction };
+                applySortAndGroup();
+                saveFilterState();
+            };
+
+            // Group select
+            const groupSelect = document.createElement('select');
+            groupSelect.id = 'seer-group-select';
+            groupSelect.style.cssText = 'padding:6px 8px;border:1px solid #D1D5DB;border-radius:6px;font-size:12px;cursor:pointer;background:white;';
+            groupSelect.innerHTML = `
+                <option value="none" ${currentGroupBy === 'none' ? 'selected' : ''}>No grouping</option>
+                <option value="tag" ${currentGroupBy === 'tag' ? 'selected' : ''}>By Tag</option>
+                <option value="source" ${currentGroupBy === 'source' ? 'selected' : ''}>By Source</option>
+                <option value="owner" ${currentGroupBy === 'owner' ? 'selected' : ''}>By Owner</option>
+            `;
+            groupSelect.onchange = () => {
+                currentGroupBy = groupSelect.value;
+                applySortAndGroup();
+                saveFilterState();
+            };
+
+            filtersRow.appendChild(tagsSelect);
+            filtersRow.appendChild(sourcesSelect);
+            filtersRow.appendChild(hideTagsSelect);
+            filtersRow.appendChild(ownersSelect);
+            filtersRow.appendChild(timeSelect);
+            filtersRow.appendChild(sortSelect);
+            filtersRow.appendChild(groupSelect);
 
             bar.appendChild(headerRow);
-            bar.appendChild(activeFiltersRow);
-            bar.appendChild(categoryRow);
-            bar.appendChild(sourceRow);
-            bar.appendChild(sortGroupRow);
-            bar.appendChild(helpRow);
+            bar.appendChild(filtersRow);
 
             // Insert bar
-            let inserted = false;
-            const allAgentsHeader = Array.from(document.querySelectorAll('h2, h3, div')).find(el => el.textContent.trim() === 'All Agents');
-            if (allAgentsHeader?.parentElement) {
-                allAgentsHeader.parentElement.insertBefore(bar, allAgentsHeader.nextSibling);
-                inserted = true;
-            }
+            insertFilterBar(bar);
 
-            if (!inserted) {
-                const searchInput = document.querySelector('input[type="search"], input[placeholder*="Search"]');
-                if (searchInput) {
-                    let container = searchInput.parentElement;
-                    while (container?.parentElement && !container.classList.contains('flex')) {
-                        container = container.parentElement;
-                        if (container.classList.contains('gap-4')) break;
-                    }
-                    if (container?.parentElement) {
-                        container.parentElement.insertBefore(bar, container.nextSibling);
-                        inserted = true;
-                    }
-                }
-            }
-
-            if (!inserted) {
-                const main = document.querySelector('.flex.flex-col.gap-4');
-                if (main?.parentNode) {
-                    main.parentNode.insertBefore(bar, main);
-                    inserted = true;
-                }
-            }
-
-            if (!inserted) {
-                const contentArea = document.querySelector('main, [role="main"], .content');
-                if (contentArea?.firstChild) {
-                    contentArea.insertBefore(bar, contentArea.firstChild);
-                } else {
-                    document.body.insertBefore(bar, document.body.firstChild);
-                }
-            }
-
-            updateButtonStates();
             updateActiveFiltersDisplay();
-            console.log('[NinjaCat Seer Tags] Filter bar inserted');
+            console.log('[NinjaCat Seer Tags] Compact filter bar inserted');
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in addTagFilterBar:', error);
         }
     }
 
-    function createHeaderRow() {
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;';
+    function insertFilterBar(bar) {
+        let inserted = false;
+        const allAgentsHeader = Array.from(document.querySelectorAll('h2, h3, div')).find(el => el.textContent.trim() === 'All Agents');
+        if (allAgentsHeader?.parentElement) {
+            allAgentsHeader.parentElement.insertBefore(bar, allAgentsHeader.nextSibling);
+            inserted = true;
+        }
 
-        // Agent count
-        const countEl = document.createElement('div');
-        countEl.id = 'seer-filter-count';
-        countEl.style.cssText = 'font-size:14px;font-weight:600;color:#374151;';
-        countEl.textContent = 'Loading...';
+        if (!inserted) {
+            const searchInput = document.querySelector('input[type="search"], input[placeholder*="Search"]');
+            if (searchInput) {
+                let container = searchInput.parentElement;
+                while (container?.parentElement && !container.classList.contains('flex')) {
+                    container = container.parentElement;
+                    if (container.classList.contains('gap-4')) break;
+                }
+                if (container?.parentElement) {
+                    container.parentElement.insertBefore(bar, container.nextSibling);
+                    inserted = true;
+                }
+            }
+        }
 
-        // Active filter badge
-        const badgeEl = document.createElement('span');
-        badgeEl.id = 'seer-filter-badge';
-        badgeEl.style.cssText = 'display:none;background:#3B82F6;color:white;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;';
-        badgeEl.textContent = '0 active';
+        if (!inserted) {
+            const main = document.querySelector('.flex.flex-col.gap-4');
+            if (main?.parentNode) {
+                main.parentNode.insertBefore(bar, main);
+                inserted = true;
+            }
+        }
 
-        // Spacer
-        const spacer = document.createElement('div');
-        spacer.style.cssText = 'flex:1;';
-
-        // Reset button (hidden when no filters)
-        const resetBtn = document.createElement('button');
-        resetBtn.id = 'seer-reset-btn';
-        resetBtn.innerHTML = '✕ Clear Filters';
-        resetBtn.className = 'seer-reset-btn';
-        resetBtn.style.cssText = 'display:none;background:#EF4444;color:white;border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;';
-        resetBtn.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            activeCategoryFilters = [];
-            activeSourceFilters = [];
-            showUntaggedOnly = false;
-            excludedCategories = [];
-            timeFilter = 'all';
-            // Reset UI dropdowns
-            const timeSelect = document.getElementById('seer-time-filter');
-            if (timeSelect) timeSelect.value = 'all';
-            applyFilters();
-        };
-
-        // Settings button
-        const settingsBtn = document.createElement('button');
-        settingsBtn.innerHTML = '⚙️';
-        settingsBtn.title = 'Settings';
-        settingsBtn.style.cssText = 'background:#4B5563;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:14px;cursor:pointer;';
-        settingsBtn.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openSettingsModal();
-        };
-
-        row.appendChild(countEl);
-        row.appendChild(badgeEl);
-        row.appendChild(spacer);
-        row.appendChild(resetBtn);
-        row.appendChild(settingsBtn);
-        return row;
+        if (!inserted) {
+            const contentArea = document.querySelector('main, [role="main"], .content');
+            if (contentArea?.firstChild) {
+                contentArea.insertBefore(bar, contentArea.firstChild);
+            } else {
+                document.body.insertBefore(bar, document.body.firstChild);
+            }
+        }
     }
 
-    function createFilterRow(label, configMap, type) {
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;';
-        row.className = type === 'category' ? 'seer-category-row' : 'seer-source-row';
+    function refreshFilterBar() {
+        document.getElementById('seer-tag-bar')?.remove();
+        addTagFilterBar();
+    }
 
-        const labelEl = document.createElement('span');
-        labelEl.textContent = label;
-        labelEl.style.cssText = 'font-size:12px;font-weight:700;color:#4B5563;margin-right:6px;min-width:70px;';
-        row.appendChild(labelEl);
+    function updateOwnersDropdown() {
+        const ownersWrapper = document.getElementById('seer-owners-multiselect');
+        if (!ownersWrapper) return;
 
-        const entries = type === 'category' ? getSortedCategories() : getSortedDataSources();
-
-        entries.forEach(([key, item]) => {
-            const btn = document.createElement('button');
-            btn.innerHTML = `${item.icon} ${item.name}`;
-            btn.className = type === 'category' ? 'seer-filter-btn' : 'seer-source-btn';
-            btn.setAttribute('data-tag', item.name);
-            btn.setAttribute('data-color', item.color);
-            btn.setAttribute('aria-pressed', 'false');
-            btn.setAttribute('role', 'button');
-            btn.style.cssText = `background:${item.color};color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;`;
-
-            btn.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const multi = e.ctrlKey || e.metaKey || e.shiftKey;
-                if (type === 'category') {
-                    handleCategorySelection(item.name, multi);
-                } else {
-                    handleSourceSelection(item.name, multi);
-                }
-            };
-
-            row.appendChild(btn);
+        const ownersSet = new Set();
+        getAgentRows(false).forEach(row => {
+            const owner = row.getAttribute('data-seer-owner');
+            if (owner) ownersSet.add(owner);
         });
 
-        // Add "Untagged" button for category row
-        if (type === 'category') {
-            const untaggedBtn = document.createElement('button');
-            untaggedBtn.innerHTML = '❓ Untagged';
-            untaggedBtn.className = 'seer-untagged-btn';
-            untaggedBtn.setAttribute('aria-pressed', 'false');
-            untaggedBtn.style.cssText = 'background:#9CA3AF;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;';
-            untaggedBtn.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                showUntaggedOnly = !showUntaggedOnly;
-                if (showUntaggedOnly) {
-                    activeCategoryFilters = [];
-                    activeSourceFilters = [];
-                }
+        if (ownersSet.size === 0) {
+            ownersWrapper.style.display = 'none';
+            return;
+        }
+
+        ownersWrapper.style.display = 'inline-block';
+        const owners = Array.from(ownersSet).sort();
+        
+        // Recreate the dropdown with new options
+        const ownerOptions = owners.map(name => ({
+            value: name,
+            label: name,
+            icon: '👤'
+        }));
+
+        const newOwnersSelect = createMultiSelect('seer-owners-select', 'Hide Users', ownerOptions,
+            excludedOwners,
+            (values) => {
+                excludedOwners = values;
                 applyFilters();
-            };
-            row.appendChild(untaggedBtn);
+                updateActiveFiltersDisplay();
+            }
+        );
+        newOwnersSelect.id = 'seer-owners-multiselect';
+        
+        // Style as red when active
+        if (excludedOwners.length > 0) {
+            const btn = newOwnersSelect.querySelector('.seer-multiselect-btn');
+            btn.style.background = '#EF4444';
+            btn.style.borderColor = '#EF4444';
+            btn.style.color = '#fff';
         }
 
-        return row;
-    }
-
-    function createCollapsibleSourceRow() {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'seer-source-wrapper';
-        
-        // Header with collapse toggle
-        const header = document.createElement('div');
-        header.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;';
-        header.onclick = () => {
-            dataSourcesCollapsed = !dataSourcesCollapsed;
-            updateDataSourcesVisibility();
-            saveFilterState();
-        };
-        
-        const toggleIcon = document.createElement('span');
-        toggleIcon.id = 'seer-source-toggle';
-        toggleIcon.textContent = dataSourcesCollapsed ? '▶' : '▼';
-        toggleIcon.style.cssText = 'font-size:10px;color:#6B7280;width:12px;';
-        
-        const labelEl = document.createElement('span');
-        labelEl.textContent = 'Data Sources';
-        labelEl.style.cssText = 'font-size:12px;font-weight:700;color:#4B5563;';
-        
-        const countBadge = document.createElement('span');
-        countBadge.id = 'seer-source-count-badge';
-        countBadge.style.cssText = 'display:none;background:#0EA5E9;color:white;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:600;margin-left:4px;';
-        
-        header.appendChild(toggleIcon);
-        header.appendChild(labelEl);
-        header.appendChild(countBadge);
-        
-        // Content (filter buttons)
-        const content = document.createElement('div');
-        content.id = 'seer-source-content';
-        content.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;margin-left:18px;';
-        
-        const entries = getSortedDataSources();
-        entries.forEach(([key, item]) => {
-            const btn = document.createElement('button');
-            btn.innerHTML = `${item.icon} ${item.name}`;
-            btn.className = 'seer-source-btn';
-            btn.setAttribute('data-tag', item.name);
-            btn.setAttribute('data-color', item.color);
-            btn.setAttribute('aria-pressed', 'false');
-            btn.style.cssText = `background:${item.color};color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;`;
-
-            btn.onclick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const multi = e.ctrlKey || e.metaKey || e.shiftKey;
-                handleSourceSelection(item.name, multi);
-            };
-
-            content.appendChild(btn);
-        });
-        
-        wrapper.appendChild(header);
-        wrapper.appendChild(content);
-        
-        // Apply initial collapsed state
-        setTimeout(() => updateDataSourcesVisibility(), 0);
-        
-        return wrapper;
-    }
-
-    function updateDataSourcesVisibility() {
-        const content = document.getElementById('seer-source-content');
-        const toggle = document.getElementById('seer-source-toggle');
-        if (content) {
-            content.style.display = dataSourcesCollapsed ? 'none' : 'flex';
-        }
-        if (toggle) {
-            toggle.textContent = dataSourcesCollapsed ? '▶' : '▼';
-        }
-    }
-
-    function createSortGroupRow() {
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding-top:8px;border-top:1px solid #E5E7EB;';
-
-        // Sort dropdown
-        const sortWrapper = document.createElement('div');
-        sortWrapper.style.cssText = 'display:flex;align-items:center;gap:6px;';
-        
-        const sortLabel = document.createElement('span');
-        sortLabel.textContent = 'Sort:';
-        sortLabel.style.cssText = 'font-size:12px;font-weight:600;color:#6B7280;';
-        
-        const sortSelect = document.createElement('select');
-        sortSelect.id = 'seer-sort-select';
-        sortSelect.style.cssText = 'padding:4px 8px;border:1px solid #D1D5DB;border-radius:4px;font-size:12px;cursor:pointer;background:white;';
-        sortSelect.innerHTML = `
-            <option value="name-asc" ${currentSort.field === 'name' && currentSort.direction === 'asc' ? 'selected' : ''}>Name (A-Z)</option>
-            <option value="name-desc" ${currentSort.field === 'name' && currentSort.direction === 'desc' ? 'selected' : ''}>Name (Z-A)</option>
-            <option value="date-desc" ${currentSort.field === 'date' && currentSort.direction === 'desc' ? 'selected' : ''}>Last Edited (Newest)</option>
-            <option value="date-asc" ${currentSort.field === 'date' && currentSort.direction === 'asc' ? 'selected' : ''}>Last Edited (Oldest)</option>
-            <option value="tags-desc" ${currentSort.field === 'tags' && currentSort.direction === 'desc' ? 'selected' : ''}>Most Tags</option>
-            <option value="tags-asc" ${currentSort.field === 'tags' && currentSort.direction === 'asc' ? 'selected' : ''}>Fewest Tags</option>
-        `;
-        sortSelect.onchange = () => {
-            const [field, direction] = sortSelect.value.split('-');
-            currentSort = { field, direction };
-            applySortAndGroup();
-            saveFilterState();
-        };
-        
-        sortWrapper.appendChild(sortLabel);
-        sortWrapper.appendChild(sortSelect);
-
-        // Group dropdown
-        const groupWrapper = document.createElement('div');
-        groupWrapper.style.cssText = 'display:flex;align-items:center;gap:6px;';
-        
-        const groupLabel = document.createElement('span');
-        groupLabel.textContent = 'Group by:';
-        groupLabel.style.cssText = 'font-size:12px;font-weight:600;color:#6B7280;';
-        
-        const groupSelect = document.createElement('select');
-        groupSelect.id = 'seer-group-select';
-        groupSelect.style.cssText = 'padding:4px 8px;border:1px solid #D1D5DB;border-radius:4px;font-size:12px;cursor:pointer;background:white;';
-        groupSelect.innerHTML = `
-            <option value="none" ${currentGroupBy === 'none' ? 'selected' : ''}>None</option>
-            <option value="tag" ${currentGroupBy === 'tag' ? 'selected' : ''}>Primary Tag</option>
-            <option value="source" ${currentGroupBy === 'source' ? 'selected' : ''}>Data Source</option>
-            <option value="owner" ${currentGroupBy === 'owner' ? 'selected' : ''}>Owner/User</option>
-        `;
-        groupSelect.onchange = () => {
-            currentGroupBy = groupSelect.value;
-            applySortAndGroup();
-            saveFilterState();
-        };
-        
-        groupWrapper.appendChild(groupLabel);
-        groupWrapper.appendChild(groupSelect);
-
-        // Time filter dropdown
-        const timeWrapper = document.createElement('div');
-        timeWrapper.style.cssText = 'display:flex;align-items:center;gap:6px;';
-        
-        const timeLabel = document.createElement('span');
-        timeLabel.textContent = 'Edited:';
-        timeLabel.style.cssText = 'font-size:12px;font-weight:600;color:#6B7280;';
-        
-        const timeSelect = document.createElement('select');
-        timeSelect.id = 'seer-time-filter';
-        timeSelect.style.cssText = 'padding:4px 8px;border:1px solid #D1D5DB;border-radius:4px;font-size:12px;cursor:pointer;background:white;';
-        timeSelect.innerHTML = `
-            <option value="all" ${timeFilter === 'all' ? 'selected' : ''}>All time</option>
-            <option value="today" ${timeFilter === 'today' ? 'selected' : ''}>Today</option>
-            <option value="week" ${timeFilter === 'week' ? 'selected' : ''}>Last 7 days</option>
-            <option value="month" ${timeFilter === 'month' ? 'selected' : ''}>Last 30 days</option>
-            <option value="quarter" ${timeFilter === 'quarter' ? 'selected' : ''}>Last 90 days</option>
-        `;
-        timeSelect.onchange = () => {
-            timeFilter = timeSelect.value;
-            applyFilters();
-        };
-        
-        timeWrapper.appendChild(timeLabel);
-        timeWrapper.appendChild(timeSelect);
-
-        // Exclude tags button
-        const excludeBtn = document.createElement('button');
-        excludeBtn.id = 'seer-exclude-btn';
-        excludeBtn.innerHTML = `🚫 Hide Tags${excludedCategories.length > 0 ? ` (${excludedCategories.length})` : ''}`;
-        excludeBtn.title = 'Select tags to hide from the list';
-        excludeBtn.style.cssText = `background:${excludedCategories.length > 0 ? '#EF4444' : '#6B7280'};color:white;border:none;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;`;
-        excludeBtn.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openExcludeModal();
-        };
-
-        // Exclude users button
-        const hideUsersBtn = document.createElement('button');
-        hideUsersBtn.id = 'seer-hide-users-btn';
-        hideUsersBtn.innerHTML = `🙈 Hide Users${excludedOwners.length > 0 ? ` (${excludedOwners.length})` : ''}`;
-        hideUsersBtn.title = 'Select owners/users to hide from the list';
-        hideUsersBtn.style.cssText = `background:${excludedOwners.length > 0 ? '#EF4444' : '#6B7280'};color:white;border:none;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;`;
-        hideUsersBtn.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openExcludeUsersModal();
-        };
-
-        row.appendChild(sortWrapper);
-        row.appendChild(groupWrapper);
-        row.appendChild(timeWrapper);
-        row.appendChild(excludeBtn);
-        row.appendChild(hideUsersBtn);
-        return row;
-    }
-
-    function createHelpRow() {
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding-top:6px;';
-
-        // Help icon with tooltip
-        const helpBtn = document.createElement('button');
-        helpBtn.innerHTML = '?';
-        helpBtn.title = 'Keyboard shortcuts:\n• Ctrl/Cmd+Click: Multi-select filters\n• Esc: Close modals\n• 🏷️: Tag agent manually\n• ➕: Add auto-tag pattern';
-        helpBtn.style.cssText = 'width:20px;height:20px;border-radius:50%;background:#E5E7EB;border:none;font-size:11px;font-weight:700;color:#6B7280;cursor:help;';
-        
-        const hintText = document.createElement('span');
-        hintText.textContent = 'Ctrl+click to multi-select';
-        hintText.style.cssText = 'font-size:11px;color:#9CA3AF;';
-
-        row.appendChild(helpBtn);
-        row.appendChild(hintText);
-        return row;
+        ownersWrapper.replaceWith(newOwnersSelect);
     }
 
     // ---- Exclude Users Modal ----
@@ -1196,73 +1243,33 @@
     }
 
     function updateExcludeButton() {
-        const btn = document.getElementById('seer-exclude-btn');
-        if (btn) {
-            btn.innerHTML = `🚫 Hide Tags${excludedCategories.length > 0 ? ` (${excludedCategories.length})` : ''}`;
-            btn.style.background = excludedCategories.length > 0 ? '#EF4444' : '#6B7280';
-        }
-        const usersBtn = document.getElementById('seer-hide-users-btn');
-        if (usersBtn) {
-            usersBtn.innerHTML = `🙈 Hide Users${excludedOwners.length > 0 ? ` (${excludedOwners.length})` : ''}`;
-            usersBtn.style.background = excludedOwners.length > 0 ? '#EF4444' : '#6B7280';
-        }
+        // No longer needed with multi-select dropdowns - handled by refreshFilterBar
     }
 
     function updateActiveFiltersDisplay() {
-        const container = document.getElementById('seer-active-filters');
-        const badge = document.getElementById('seer-filter-badge');
-        const resetBtn = document.getElementById('seer-reset-btn');
-        const sourceCountBadge = document.getElementById('seer-source-count-badge');
+        const chipsContainer = document.getElementById('seer-active-chips');
+        const clearBtn = document.getElementById('seer-clear-btn');
         
-        if (!container) return;
+        if (!chipsContainer) return;
         
         const totalActive = activeCategoryFilters.length + activeSourceFilters.length + 
             (showUntaggedOnly ? 1 : 0) + excludedCategories.length + excludedOwners.length + (timeFilter !== 'all' ? 1 : 0);
         
-        // Update badge
-        if (badge) {
-            if (totalActive > 0) {
-                badge.style.display = 'inline';
-                badge.textContent = `${totalActive} active`;
-            } else {
-                badge.style.display = 'none';
-            }
+        // Update clear button visibility
+        if (clearBtn) {
+            clearBtn.style.display = totalActive > 0 ? 'inline-block' : 'none';
         }
         
-        // Update reset button visibility
-        if (resetBtn) {
-            resetBtn.style.display = totalActive > 0 ? 'inline-block' : 'none';
-        }
+        // Build compact active filter chips
+        chipsContainer.innerHTML = '';
         
-        // Update source count badge (when collapsed)
-        if (sourceCountBadge) {
-            if (activeSourceFilters.length > 0 && dataSourcesCollapsed) {
-                sourceCountBadge.style.display = 'inline';
-                sourceCountBadge.textContent = activeSourceFilters.length;
-            } else {
-                sourceCountBadge.style.display = 'none';
-            }
-        }
+        if (totalActive === 0) return;
         
-        // Build active filter chips
-        container.innerHTML = '';
-        if (totalActive === 0) {
-            container.style.display = 'none';
-            return;
-        }
-        
-        container.style.display = 'flex';
-        
-        const label = document.createElement('span');
-        label.textContent = 'Active:';
-        label.style.cssText = 'font-size:11px;font-weight:600;color:#6B7280;margin-right:4px;';
-        container.appendChild(label);
-        
-        // Category chips
+        // Category chips (compact)
         activeCategoryFilters.forEach(name => {
             const cat = Object.values(config.categories).find(c => c.name === name);
             if (cat) {
-                container.appendChild(createFilterChip(name, cat.color, cat.icon, 'category'));
+                chipsContainer.appendChild(createCompactChip(name, cat.color, cat.icon, 'category'));
             }
         });
         
@@ -1270,67 +1277,78 @@
         activeSourceFilters.forEach(name => {
             const src = Object.values(dataSources).find(s => s.name === name);
             if (src) {
-                container.appendChild(createFilterChip(name, src.color, src.icon, 'source'));
+                chipsContainer.appendChild(createCompactChip(name, src.color, src.icon, 'source'));
             }
         });
         
         // Untagged chip
         if (showUntaggedOnly) {
-            container.appendChild(createFilterChip('Untagged', '#9CA3AF', '❓', 'untagged'));
+            chipsContainer.appendChild(createCompactChip('Untagged', '#9CA3AF', '❓', 'untagged'));
         }
         
-        // Excluded tags chip
+        // Excluded tags (show as single summary chip)
         if (excludedCategories.length > 0) {
-            container.appendChild(createFilterChip(`Hiding ${excludedCategories.length} tags`, '#EF4444', '🚫', 'excluded'));
+            chipsContainer.appendChild(createCompactChip(`-${excludedCategories.length} tags`, '#EF4444', '🚫', 'excluded'));
         }
-        // Excluded users chip
+        
+        // Excluded users
         if (excludedOwners.length > 0) {
-            container.appendChild(createFilterChip(`Hiding ${excludedOwners.length} users`, '#EF4444', '🙈', 'excluded_users'));
+            chipsContainer.appendChild(createCompactChip(`-${excludedOwners.length} users`, '#EF4444', '🙈', 'excluded_users'));
         }
         
         // Time filter chip
         if (timeFilter !== 'all') {
-            const timeLabels = { today: 'Today', week: 'Last 7 days', month: 'Last 30 days', quarter: 'Last 90 days' };
-            container.appendChild(createFilterChip(timeLabels[timeFilter], '#6366F1', '📅', 'time'));
+            const timeLabels = { today: 'Today', week: '7d', month: '30d', quarter: '90d' };
+            chipsContainer.appendChild(createCompactChip(timeLabels[timeFilter], '#6366F1', '📅', 'time'));
         }
+
+        saveFilterState();
     }
 
-    function createFilterChip(name, color, icon, type) {
+    function createCompactChip(label, color, icon, type) {
         const chip = document.createElement('span');
-        chip.style.cssText = `display:inline-flex;align-items:center;gap:4px;background:${color};color:white;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:500;`;
+        chip.style.cssText = `display:inline-flex;align-items:center;gap:3px;background:${color};color:white;padding:2px 6px;border-radius:10px;font-size:10px;font-weight:500;cursor:pointer;transition:opacity 0.15s;`;
+        chip.title = `Click to remove: ${label}`;
+        
+        const iconSpan = document.createElement('span');
+        iconSpan.textContent = icon;
+        iconSpan.style.cssText = 'font-size:10px;';
         
         const text = document.createElement('span');
-        text.textContent = `${icon} ${name}`;
+        text.textContent = label;
         
-        const removeBtn = document.createElement('button');
-        removeBtn.innerHTML = '×';
-        removeBtn.title = `Remove ${name} filter`;
-        removeBtn.style.cssText = 'background:rgba(255,255,255,0.3);border:none;border-radius:50%;width:14px;height:14px;font-size:12px;line-height:1;cursor:pointer;color:white;padding:0;';
-        removeBtn.onclick = (e) => {
+        const removeX = document.createElement('span');
+        removeX.textContent = '×';
+        removeX.style.cssText = 'font-size:12px;font-weight:700;margin-left:2px;opacity:0.7;';
+        
+        chip.onmouseenter = () => chip.style.opacity = '0.8';
+        chip.onmouseleave = () => chip.style.opacity = '1';
+        
+        chip.onclick = (e) => {
             e.preventDefault();
             e.stopPropagation();
             if (type === 'category') {
-                activeCategoryFilters = activeCategoryFilters.filter(f => f !== name);
+                activeCategoryFilters = activeCategoryFilters.filter(f => f !== label);
             } else if (type === 'source') {
-                activeSourceFilters = activeSourceFilters.filter(f => f !== name);
+                activeSourceFilters = activeSourceFilters.filter(f => f !== label);
             } else if (type === 'untagged') {
                 showUntaggedOnly = false;
             } else if (type === 'excluded') {
                 excludedCategories = [];
-                updateExcludeButton();
             } else if (type === 'excluded_users') {
                 excludedOwners = [];
-                updateExcludeButton();
             } else if (type === 'time') {
                 timeFilter = 'all';
                 const timeSelect = document.getElementById('seer-time-filter');
                 if (timeSelect) timeSelect.value = 'all';
             }
             applyFilters();
+            refreshFilterBar();
         };
         
+        chip.appendChild(iconSpan);
         chip.appendChild(text);
-        chip.appendChild(removeBtn);
+        chip.appendChild(removeX);
         return chip;
     }
 
@@ -1407,9 +1425,7 @@
 
             currentFilterStats = { visible, total: rows.length };
             updateFilterCount();
-            updateButtonStates();
             updateActiveFiltersDisplay();
-            updateExcludeButton();
             applySortAndGroup();
             saveFilterState();
             
@@ -1649,36 +1665,7 @@
         }
     }
 
-    function updateButtonStates() {
-        const activeCats = new Set(activeCategoryFilters);
-        const activeSources = new Set(activeSourceFilters);
-
-        document.querySelectorAll('.seer-filter-btn').forEach(btn => {
-            const tag = btn.getAttribute('data-tag');
-            const active = activeCats.has(tag);
-            btn.style.opacity = (activeCats.size === 0 && !showUntaggedOnly) || active ? '1' : '0.5';
-            btn.style.boxShadow = active ? '0 0 0 3px #111827' : '';
-            btn.style.transform = active ? 'scale(1.05)' : 'scale(1)';
-            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        });
-
-        document.querySelectorAll('.seer-source-btn').forEach(btn => {
-            const tag = btn.getAttribute('data-tag');
-            const active = activeSources.has(tag);
-            btn.style.opacity = (activeSources.size === 0 && !showUntaggedOnly) || active ? '1' : '0.5';
-            btn.style.boxShadow = active ? '0 0 0 3px #111827' : '';
-            btn.style.transform = active ? 'scale(1.05)' : 'scale(1)';
-            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        });
-
-        const untaggedBtn = document.querySelector('.seer-untagged-btn');
-        if (untaggedBtn) {
-            untaggedBtn.style.opacity = showUntaggedOnly ? '1' : '0.7';
-            untaggedBtn.style.boxShadow = showUntaggedOnly ? '0 0 0 3px #111827' : '';
-            untaggedBtn.style.transform = showUntaggedOnly ? 'scale(1.05)' : 'scale(1)';
-            untaggedBtn.setAttribute('aria-pressed', showUntaggedOnly ? 'true' : 'false');
-        }
-    }
+    // updateButtonStates removed - replaced by multi-select dropdowns
 
     // ---- Import/Export ----
     function exportConfigToFile() {
