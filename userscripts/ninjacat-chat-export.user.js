@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat Export
 // @namespace    http://tampermonkey.net/
-// @version      2.4.0
+// @version      2.5.0
 // @description  Export NinjaCat agent chats to PDF (print) or Markdown, with expand/collapse controls
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents/*/chat/*
@@ -16,7 +16,7 @@
 (function() {
     'use strict';
 
-    console.log('[NinjaCat Chat Export] Script loaded v2.4.0');
+    console.log('[NinjaCat Chat Export] Script loaded v2.5.0');
 
     let exportButtonAdded = false;
     let printEnhancementsAdded = false;
@@ -746,10 +746,44 @@
                     markdown += `## You\n\n${text}\n\n---\n\n`;
                 }
             } else {
-                const styledMessage = el.querySelector('.styled-chat-message') || el;
-                const messageContent = extractMarkdownContent(styledMessage);
-                if (messageContent) {
-                    markdown += `## Agent\n\n${messageContent}\n\n---\n\n`;
+                // Get main message content
+                const styledMessage = el.querySelector('.styled-chat-message');
+                let messageContent = '';
+                
+                if (styledMessage) {
+                    messageContent = extractMarkdownContent(styledMessage);
+                }
+
+                // Also capture expanded task/subtask content
+                // Look for overflow-hidden elements that are expanded (height: auto)
+                const expandedSections = el.querySelectorAll('.overflow-hidden');
+                expandedSections.forEach(section => {
+                    const style = section.getAttribute('style') || '';
+                    const isExpanded = style.includes('height: auto') || style.includes('overflow: visible');
+                    if (isExpanded) {
+                        // Check if this content is already in styledMessage
+                        if (!styledMessage || !styledMessage.contains(section)) {
+                            const sectionContent = extractMarkdownContent(section);
+                            if (sectionContent && sectionContent.trim()) {
+                                messageContent += '\n\n' + sectionContent;
+                            }
+                        }
+                    }
+                });
+
+                // Also look for task content boxes (bg-blue-2 styled boxes)
+                const taskBoxes = el.querySelectorAll('.bg-blue-2');
+                taskBoxes.forEach(box => {
+                    if (!styledMessage || !styledMessage.contains(box)) {
+                        const boxContent = extractMarkdownContent(box);
+                        if (boxContent && boxContent.trim()) {
+                            messageContent += '\n\n**Task Output:**\n' + boxContent;
+                        }
+                    }
+                });
+
+                if (messageContent && messageContent.trim()) {
+                    markdown += `## Agent\n\n${messageContent.trim()}\n\n---\n\n`;
                 }
             }
         });
@@ -771,45 +805,131 @@
 
         const clone = element.cloneNode(true);
 
+        // Remove our injected labels
         clone.querySelectorAll('.ninjacat-agent-label, .ninjacat-user-label').forEach(el => el.remove());
 
+        // Remove UI elements that shouldn't be in export
+        clone.querySelectorAll('.tableModifiers, .table-pagination').forEach(el => el.remove());
+        clone.querySelectorAll('[data-automation-id="search-bar"]').forEach(el => el.closest('.flex')?.remove());
+
+        // Convert tables to Markdown FIRST (before other processing)
+        clone.querySelectorAll('table').forEach(table => {
+            const mdTable = convertTableToMarkdown(table);
+            const placeholder = document.createElement('div');
+            placeholder.textContent = mdTable;
+            table.replaceWith(placeholder);
+        });
+
+        // Convert headers
         clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {
             const level = parseInt(h.tagName[1]);
             const prefix = '#'.repeat(level + 1);
-            h.textContent = `${prefix} ${h.textContent}\n`;
+            h.textContent = `\n${prefix} ${h.textContent.trim()}\n`;
         });
 
-        clone.querySelectorAll('pre, code').forEach(code => {
-            if (code.tagName === 'PRE') {
-                code.textContent = `\n\`\`\`\n${code.textContent}\n\`\`\`\n`;
-            } else {
+        // Convert code blocks - handle PRE first to avoid double processing
+        clone.querySelectorAll('pre').forEach(pre => {
+            const codeEl = pre.querySelector('code');
+            const codeText = codeEl ? codeEl.textContent : pre.textContent;
+            // Try to detect language from class
+            const langClass = (codeEl?.className || pre.className || '').match(/language-(\w+)/);
+            const lang = langClass ? langClass[1] : '';
+            pre.textContent = `\n\`\`\`${lang}\n${codeText.trim()}\n\`\`\`\n`;
+        });
+
+        // Convert inline code (but not ones inside pre that we already processed)
+        clone.querySelectorAll('code').forEach(code => {
+            if (!code.closest('pre')) {
                 code.textContent = `\`${code.textContent}\``;
             }
         });
 
-        clone.querySelectorAll('ul li').forEach(li => {
-            li.textContent = `- ${li.textContent}\n`;
+        // Convert lists
+        clone.querySelectorAll('ul').forEach(ul => {
+            ul.querySelectorAll(':scope > li').forEach(li => {
+                const indent = getListIndent(li);
+                li.innerHTML = `${indent}- ${li.innerHTML}`;
+            });
         });
-        clone.querySelectorAll('ol li').forEach((li, i) => {
-            li.textContent = `${i + 1}. ${li.textContent}\n`;
+        clone.querySelectorAll('ol').forEach(ol => {
+            ol.querySelectorAll(':scope > li').forEach((li, i) => {
+                const indent = getListIndent(li);
+                li.innerHTML = `${indent}${i + 1}. ${li.innerHTML}`;
+            });
         });
 
+        // Convert text formatting
         clone.querySelectorAll('strong, b').forEach(el => {
             el.textContent = `**${el.textContent}**`;
         });
 
         clone.querySelectorAll('em, i').forEach(el => {
-            el.textContent = `*${el.textContent}*`;
+            // Skip if it's an icon
+            if (!el.closest('svg') && !el.querySelector('svg')) {
+                el.textContent = `*${el.textContent}*`;
+            }
         });
 
+        // Convert links
         clone.querySelectorAll('a').forEach(a => {
-            a.textContent = `[${a.textContent}](${a.href})`;
+            const href = a.href;
+            const text = a.textContent.trim();
+            if (href && text && !href.startsWith('javascript:')) {
+                a.textContent = `[${text}](${href})`;
+            }
         });
 
+        // Get final text content
         let content = clone.textContent?.trim() || '';
+        
+        // Clean up excessive whitespace
         content = content.replace(/\n{3,}/g, '\n\n');
-
+        content = content.replace(/[ \t]+\n/g, '\n'); // Remove trailing spaces
+        
         return content;
+    }
+
+    // Helper: Convert HTML table to Markdown table
+    function convertTableToMarkdown(table) {
+        const rows = [];
+        const headerRow = table.querySelector('thead tr');
+        const bodyRows = table.querySelectorAll('tbody tr');
+
+        // Extract headers
+        if (headerRow) {
+            const headers = Array.from(headerRow.querySelectorAll('th, td')).map(cell => 
+                cell.textContent.trim().replace(/\|/g, '\\|')
+            );
+            if (headers.length > 0) {
+                rows.push(`| ${headers.join(' | ')} |`);
+                rows.push(`| ${headers.map(() => '---').join(' | ')} |`);
+            }
+        }
+
+        // Extract body rows
+        bodyRows.forEach(tr => {
+            const cells = Array.from(tr.querySelectorAll('td, th')).map(cell => 
+                cell.textContent.trim().replace(/\|/g, '\\|')
+            );
+            if (cells.length > 0) {
+                rows.push(`| ${cells.join(' | ')} |`);
+            }
+        });
+
+        return rows.length > 0 ? '\n' + rows.join('\n') + '\n' : '';
+    }
+
+    // Helper: Get indentation for nested list items
+    function getListIndent(li) {
+        let depth = 0;
+        let parent = li.parentElement;
+        while (parent) {
+            if (parent.tagName === 'UL' || parent.tagName === 'OL') {
+                depth++;
+            }
+            parent = parent.parentElement;
+        }
+        return '  '.repeat(Math.max(0, depth - 1));
     }
 
     function downloadFile(filename, content, mimeType) {
