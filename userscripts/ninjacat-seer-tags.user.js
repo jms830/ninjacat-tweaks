@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
+// @version      2.1.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.0.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.1.0');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -369,31 +369,106 @@
 
     function isMyAgent(row) {
         // Check for "My Agents" in the Access dropdown area
-        // The structure is: <div class="flex items-center w-full"><span>Access:</span><span><p>My Agents</p></span></div>
-        const accessEl = row.querySelector('div.flex.items-center span p, div.flex.items-center span.truncate p');
-        if (accessEl && accessEl.textContent.trim() === 'My Agents') {
-            return true;
+        // The structure is: <div class="flex items-center w-full"><span class="mr-1 text-grey-60">Access:</span><span class="truncate"><p>My Agents</p></span></div>
+        
+        // Method 1: Look for Access: label followed by My Agents text
+        const flexDivs = row.querySelectorAll('div.flex.items-center');
+        for (const div of flexDivs) {
+            const text = div.textContent || '';
+            if (text.includes('Access:') && text.includes('My Agents')) {
+                return true;
+            }
         }
         
-        // Fallback: check if text contains "My Agents" in access context
-        const text = row.textContent || '';
-        if (text.includes('Access:') && text.includes('My Agents')) {
-            return true;
+        // Method 2: Look for truncate span with "My Agents" paragraph
+        const truncateSpans = row.querySelectorAll('span.truncate p');
+        for (const p of truncateSpans) {
+            if (p.textContent.trim() === 'My Agents') {
+                return true;
+            }
+        }
+        
+        // Method 3: Broader search - look for any element containing exact "My Agents" text
+        const allPs = row.querySelectorAll('p');
+        for (const p of allPs) {
+            if (p.textContent.trim() === 'My Agents') {
+                // Verify it's in the access context (not agent name)
+                const parent = p.closest('div.flex');
+                if (parent && parent.textContent.includes('Access')) {
+                    return true;
+                }
+            }
         }
         
         return false;
     }
 
-    // ---- Auto-expand pagination ----
-    function expandShowAll() {
+    // ---- Pagination control (configurable items per page) ----
+    const ITEMS_PER_PAGE_KEY = 'ninjacat-seer-items-per-page';
+    
+    function loadItemsPerPage() {
         try {
-            const showAllBtn = document.querySelector('[data-automation-id="data-table-pagination-show-all"]');
-            if (showAllBtn && showAllBtn.offsetParent !== null) {
-                console.log('[NinjaCat Seer Tags] Clicking "Show All" button');
-                showAllBtn.click();
+            const saved = localStorage.getItem(ITEMS_PER_PAGE_KEY);
+            if (saved) return parseInt(saved) || 0; // 0 = don't auto-change
+        } catch (e) {}
+        return 0; // Default: don't auto-change pagination
+    }
+    
+    function saveItemsPerPage(value) {
+        try {
+            localStorage.setItem(ITEMS_PER_PAGE_KEY, value.toString());
+        } catch (e) {}
+    }
+    
+    function setItemsPerPage() {
+        try {
+            const itemsPerPage = loadItemsPerPage();
+            if (itemsPerPage === 0) return; // Don't auto-change
+            
+            // Look for pagination dropdown/buttons
+            const paginationSelectors = [
+                '[data-automation-id="data-table-pagination-page-size"]',
+                '[data-automation-id*="page-size"]',
+                'select[aria-label*="per page"]',
+                'select[aria-label*="rows"]',
+                '.pagination select'
+            ];
+            
+            for (const sel of paginationSelectors) {
+                const el = document.querySelector(sel);
+                if (el && el.tagName === 'SELECT') {
+                    // Find option closest to desired value
+                    const options = Array.from(el.options);
+                    let bestOption = null;
+                    
+                    if (itemsPerPage >= 999) {
+                        // Look for "All" or highest value
+                        bestOption = options.find(o => o.text.toLowerCase().includes('all')) ||
+                                    options[options.length - 1];
+                    } else {
+                        bestOption = options.find(o => parseInt(o.value) === itemsPerPage) ||
+                                    options.find(o => parseInt(o.value) >= itemsPerPage);
+                    }
+                    
+                    if (bestOption && el.value !== bestOption.value) {
+                        console.log(`[NinjaCat Seer Tags] Setting items per page to: ${bestOption.text}`);
+                        el.value = bestOption.value;
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    return;
+                }
+            }
+            
+            // Fallback: If user wants "All" (999+), try clicking Show All button
+            if (itemsPerPage >= 999) {
+                const showAllBtn = document.querySelector('[data-automation-id="data-table-pagination-show-all"]');
+                if (showAllBtn && showAllBtn.offsetParent !== null) {
+                    console.log('[NinjaCat Seer Tags] Clicking "Show All" button');
+                    showAllBtn.click();
+                }
             }
         } catch (error) {
-            console.error('[NinjaCat Seer Tags] Error in expandShowAll:', error);
+            console.error('[NinjaCat Seer Tags] Error in setItemsPerPage:', error);
         }
     }
 
@@ -1240,6 +1315,7 @@
             setTimeout(() => {
                 addCollapsibleFavorites();
                 addMyAgentsSection();
+                addCollapsibleAllAgents();
             }, 500);
             
             console.log('[NinjaCat Seer Tags] Compact filter bar inserted');
@@ -1248,57 +1324,91 @@
         }
     }
 
+    // ---- Collapsible Section Helper ----
+    function makeCollapsible(headerEl, storageKey, contentFinder) {
+        if (!headerEl || headerEl.querySelector('.seer-collapse-btn')) return;
+        
+        // Load saved state
+        const savedState = localStorage.getItem(storageKey);
+        let isCollapsed = savedState === 'true';
+        
+        // Style the header to be clickable
+        const originalStyle = headerEl.getAttribute('style') || '';
+        headerEl.style.cssText = originalStyle + ';cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;';
+        
+        // Add collapse indicator
+        const collapseBtn = document.createElement('span');
+        collapseBtn.className = 'seer-collapse-btn';
+        collapseBtn.textContent = isCollapsed ? '▶' : '▼';
+        collapseBtn.style.cssText = 'font-size:12px;color:#6B7280;transition:transform 0.2s;flex-shrink:0;';
+        headerEl.insertBefore(collapseBtn, headerEl.firstChild);
+        
+        // Find content to collapse
+        const content = contentFinder(headerEl);
+        
+        if (content) {
+            // Apply initial state
+            if (isCollapsed) {
+                content.style.display = 'none';
+            }
+            
+            // Toggle on click
+            headerEl.onclick = (e) => {
+                e.stopPropagation();
+                isCollapsed = !isCollapsed;
+                collapseBtn.textContent = isCollapsed ? '▶' : '▼';
+                content.style.display = isCollapsed ? 'none' : '';
+                localStorage.setItem(storageKey, isCollapsed.toString());
+            };
+        }
+    }
+
     // ---- Collapsible Favorites Section ----
     function addCollapsibleFavorites() {
-        // Find the Favorites header
         const favoritesHeader = Array.from(document.querySelectorAll('h2, h3, div')).find(el => 
             el.textContent.trim() === 'Favorites' && !el.querySelector('.seer-collapse-btn')
         );
         
         if (!favoritesHeader) return;
         
-        // Check if already processed
-        if (favoritesHeader.querySelector('.seer-collapse-btn')) return;
+        makeCollapsible(favoritesHeader, 'seer-favorites-collapsed', (header) => {
+            // Find the favorites content (cards container after header)
+            let content = header.nextElementSibling;
+            while (content && !content.querySelector('[class*="grid"], [class*="flex"]')) {
+                content = content.nextElementSibling;
+            }
+            if (!content) {
+                content = header.parentElement?.nextElementSibling;
+            }
+            return content;
+        });
+    }
+    
+    // ---- Collapsible All Agents Section ----
+    function addCollapsibleAllAgents() {
+        const allAgentsHeader = Array.from(document.querySelectorAll('h2, h3, div')).find(el => 
+            el.textContent.trim() === 'All Agents' && !el.querySelector('.seer-collapse-btn')
+        );
         
-        // Load saved state
-        const savedState = localStorage.getItem('seer-favorites-collapsed');
-        let isCollapsed = savedState === 'true';
+        if (!allAgentsHeader) return;
         
-        // Style the header to be clickable
-        favoritesHeader.style.cssText = 'cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;';
-        
-        // Add collapse indicator
-        const collapseBtn = document.createElement('span');
-        collapseBtn.className = 'seer-collapse-btn';
-        collapseBtn.textContent = isCollapsed ? '▶' : '▼';
-        collapseBtn.style.cssText = 'font-size:12px;color:#6B7280;transition:transform 0.2s;';
-        favoritesHeader.insertBefore(collapseBtn, favoritesHeader.firstChild);
-        
-        // Find the favorites content (cards container after header)
-        let favoritesContent = favoritesHeader.nextElementSibling;
-        while (favoritesContent && !favoritesContent.querySelector('[class*="grid"], [class*="flex"]')) {
-            favoritesContent = favoritesContent.nextElementSibling;
-        }
-        
-        if (!favoritesContent) {
-            // Try parent's next sibling
-            favoritesContent = favoritesHeader.parentElement?.nextElementSibling;
-        }
-        
-        if (favoritesContent) {
-            // Apply initial state
-            if (isCollapsed) {
-                favoritesContent.style.display = 'none';
+        makeCollapsible(allAgentsHeader, 'seer-all-agents-collapsed', (header) => {
+            // Find the table/list container after the header
+            // It might be a table, or a div with rows
+            let content = header.nextElementSibling;
+            
+            // Skip the filter bar if it's between header and table
+            while (content && (content.id === 'seer-tag-bar' || content.id === 'seer-my-agents-section')) {
+                content = content.nextElementSibling;
             }
             
-            // Toggle on click
-            favoritesHeader.onclick = () => {
-                isCollapsed = !isCollapsed;
-                collapseBtn.textContent = isCollapsed ? '▶' : '▼';
-                favoritesContent.style.display = isCollapsed ? 'none' : '';
-                localStorage.setItem('seer-favorites-collapsed', isCollapsed.toString());
-            };
-        }
+            // Look for table or row container
+            if (!content) {
+                content = header.parentElement?.querySelector('table, [role="table"], [data-automation-id*="table"]');
+            }
+            
+            return content;
+        });
     }
 
     // ---- My Agents Pinned Section ----
@@ -2128,6 +2238,8 @@
             const modal = document.createElement('div');
             modal.style.cssText = 'background:white;border-radius:12px;padding:24px;max-width:900px;width:95%;max-height:90vh;overflow-y:auto;';
             
+            const currentItemsPerPage = loadItemsPerPage();
+            
             modal.innerHTML = `
                 <h2 style="margin:0 0 8px 0;font-size:24px;font-weight:700;">⚙️ Settings</h2>
                 <p style="margin:0 0 16px 0;color:#6B7280;">Customize filters, data sources, and manage your configuration.</p>
@@ -2141,6 +2253,7 @@
                 <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid #E5E7EB;">
                     <button class="seer-tab-btn" data-tab="filters" style="padding:10px 20px;border:none;background:#3B82F6;color:white;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">Filters</button>
                     <button class="seer-tab-btn" data-tab="sources" style="padding:10px 20px;border:none;background:#E5E7EB;color:#374151;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">Data Sources</button>
+                    <button class="seer-tab-btn" data-tab="general" style="padding:10px 20px;border:none;background:#E5E7EB;color:#374151;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">General</button>
                 </div>
                 
                 <!-- Filters Tab -->
@@ -2161,6 +2274,41 @@
                         <button id="seer-disable-all-sources" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✗ Disable All</button>
                     </div>
                     <div id="seer-source-list"></div>
+                </div>
+                
+                <!-- General Tab -->
+                <div id="seer-tab-general" class="seer-tab-content" style="display:none;">
+                    <div style="padding:16px;background:#F9FAFB;border-radius:8px;border:1px solid #E5E7EB;">
+                        <h3 style="margin:0 0 12px 0;font-size:16px;font-weight:600;">📄 Pagination</h3>
+                        <p style="margin:0 0 12px 0;color:#6B7280;font-size:13px;">
+                            Set how many agents to show per page. By default, the script won't change pagination (faster loading).
+                        </p>
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                            <label style="font-size:13px;font-weight:500;">Items per page:</label>
+                            <select id="seer-items-per-page" style="padding:8px 12px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px;cursor:pointer;">
+                                <option value="0" ${currentItemsPerPage === 0 ? 'selected' : ''}>Don't change (default)</option>
+                                <option value="10" ${currentItemsPerPage === 10 ? 'selected' : ''}>10</option>
+                                <option value="20" ${currentItemsPerPage === 20 ? 'selected' : ''}>20</option>
+                                <option value="50" ${currentItemsPerPage === 50 ? 'selected' : ''}>50</option>
+                                <option value="100" ${currentItemsPerPage === 100 ? 'selected' : ''}>100</option>
+                                <option value="999" ${currentItemsPerPage >= 999 ? 'selected' : ''}>Show All (slow)</option>
+                            </select>
+                        </div>
+                        <p style="margin:12px 0 0 0;color:#9CA3AF;font-size:11px;">
+                            ⚠️ "Show All" can be very slow with many agents. Use with caution.
+                        </p>
+                    </div>
+                    
+                    <div style="padding:16px;background:#F9FAFB;border-radius:8px;border:1px solid #E5E7EB;margin-top:12px;">
+                        <h3 style="margin:0 0 12px 0;font-size:16px;font-weight:600;">📊 Sections</h3>
+                        <p style="margin:0 0 12px 0;color:#6B7280;font-size:13px;">
+                            Collapsible sections help organize the page. Click section headers to collapse/expand.
+                        </p>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button id="seer-collapse-all" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:500;cursor:pointer;">Collapse All</button>
+                            <button id="seer-expand-all" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:500;cursor:pointer;">Expand All</button>
+                        </div>
+                    </div>
                 </div>
                 
                 <div style="padding-top:16px;border-top:1px solid #E5E7EB;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
@@ -2254,6 +2402,27 @@
             // Export/Import
             modal.querySelector('#seer-export-config').onclick = () => exportConfigToFile();
             modal.querySelector('#seer-import-config').onclick = () => importConfigFromFile(overlay);
+            
+            // Items per page
+            modal.querySelector('#seer-items-per-page').onchange = (e) => {
+                saveItemsPerPage(parseInt(e.target.value));
+            };
+            
+            // Collapse/Expand all
+            modal.querySelector('#seer-collapse-all').onclick = () => {
+                localStorage.setItem('seer-favorites-collapsed', 'true');
+                localStorage.setItem('seer-my-agents-collapsed', 'true');
+                localStorage.setItem('seer-all-agents-collapsed', 'true');
+                overlay.remove();
+                refreshPage();
+            };
+            modal.querySelector('#seer-expand-all').onclick = () => {
+                localStorage.setItem('seer-favorites-collapsed', 'false');
+                localStorage.setItem('seer-my-agents-collapsed', 'false');
+                localStorage.setItem('seer-all-agents-collapsed', 'false');
+                overlay.remove();
+                refreshPage();
+            };
 
             overlay.appendChild(modal);
             document.body.appendChild(overlay);
@@ -2498,7 +2667,7 @@
 
     function runAll() {
         try {
-            expandShowAll();
+            setItemsPerPage(); // Configurable, default is don't change
             tagAgentCards();
             addTagFilterBar();
         } catch (error) {
