@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.1.0
+// @version      2.2.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,13 +25,14 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.1.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.2.0');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
     const AGENT_TAGS_KEY = 'ninjacat-seer-agent-tags';
     const FILTER_STATE_KEY = 'ninjacat-seer-filter-state'; // persists filters, excludes, sort/group
     const DATA_SOURCES_KEY = 'ninjacat-seer-data-sources';
+    // MY_NAME_KEY removed - now using native NinjaCat "My Agents" filter
     
     // ---- Default Configuration ----
     const DEFAULT_CONFIG = {
@@ -367,41 +368,7 @@
         return null;
     }
 
-    function isMyAgent(row) {
-        // Check for "My Agents" in the Access dropdown area
-        // The structure is: <div class="flex items-center w-full"><span class="mr-1 text-grey-60">Access:</span><span class="truncate"><p>My Agents</p></span></div>
-        
-        // Method 1: Look for Access: label followed by My Agents text
-        const flexDivs = row.querySelectorAll('div.flex.items-center');
-        for (const div of flexDivs) {
-            const text = div.textContent || '';
-            if (text.includes('Access:') && text.includes('My Agents')) {
-                return true;
-            }
-        }
-        
-        // Method 2: Look for truncate span with "My Agents" paragraph
-        const truncateSpans = row.querySelectorAll('span.truncate p');
-        for (const p of truncateSpans) {
-            if (p.textContent.trim() === 'My Agents') {
-                return true;
-            }
-        }
-        
-        // Method 3: Broader search - look for any element containing exact "My Agents" text
-        const allPs = row.querySelectorAll('p');
-        for (const p of allPs) {
-            if (p.textContent.trim() === 'My Agents') {
-                // Verify it's in the access context (not agent name)
-                const parent = p.closest('div.flex');
-                if (parent && parent.textContent.includes('Access')) {
-                    return true;
-                }
-            }
-        }
-        
-        return false;
-    }
+    // My Agents detection removed - now using native NinjaCat "My Agents" Access filter
 
     // ---- Pagination control (configurable items per page) ----
     const ITEMS_PER_PAGE_KEY = 'ninjacat-seer-items-per-page';
@@ -478,11 +445,27 @@
             const agentCards = getAgentRows();
             if (agentCards.length === 0) return;
 
-            console.log(`[NinjaCat Seer Tags] Tagging ${agentCards.length} agent cards`);
+            // Count how many cards need tagging (don't have the marker yet)
+            const untaggedCards = agentCards.filter(card => !card.hasAttribute('data-seer-tagged'));
+            if (untaggedCards.length === 0) {
+                // All cards already tagged, just apply filters
+                applyFilters();
+                return;
+            }
+            
+            console.log(`[NinjaCat Seer Tags] Tagging ${untaggedCards.length} new agent cards (${agentCards.length} total)`);
             
             agentCards.forEach((card, index) => {
                 try {
-                    // Remove existing elements
+                    // Skip cards that are already tagged to prevent flashing
+                    if (card.hasAttribute('data-seer-tagged')) {
+                        return;
+                    }
+                    
+                    // Mark this card as tagged
+                    card.setAttribute('data-seer-tagged', 'true');
+                    
+                    // Remove existing elements (shouldn't exist, but just in case)
                     card.querySelector('.seer-tags')?.remove();
                     card.querySelector('.seer-tag-agent-btn')?.remove();
                     card.querySelector('.seer-suggest-btn')?.remove();
@@ -493,13 +476,10 @@
                     const sources = detectDataSources(card);
                     const dateInfo = extractDateFromRow(card);
                     const ownerInfo = extractOwnerFromRow(card);
-
-                    const isMine = isMyAgent(card);
                     
                     card.setAttribute('data-seer-tags', tags.map(t => t.name).join(','));
                     card.setAttribute('data-seer-datasources', sources.join(','));
                     card.setAttribute('data-seer-has-tags', tags.length > 0 ? 'true' : 'false');
-                    card.setAttribute('data-seer-is-mine', isMine ? 'true' : 'false');
                     if (agentName) card.setAttribute('data-seer-agent-name', agentName);
                     if (dateInfo.timestamp) card.setAttribute('data-seer-date', dateInfo.timestamp);
                     if (dateInfo.text) card.setAttribute('data-seer-date-text', dateInfo.text);
@@ -1311,10 +1291,10 @@
 
             updateActiveFiltersDisplay();
             
-            // Add collapsible sections
+            // Add collapsible sections and My Agents button
             setTimeout(() => {
                 addCollapsibleFavorites();
-                addMyAgentsSection();
+                addMyAgentsButton();
                 addCollapsibleAllAgents();
             }, 500);
             
@@ -1398,7 +1378,7 @@
             let content = header.nextElementSibling;
             
             // Skip the filter bar if it's between header and table
-            while (content && (content.id === 'seer-tag-bar' || content.id === 'seer-my-agents-section')) {
+            while (content && content.id === 'seer-tag-bar') {
                 content = content.nextElementSibling;
             }
             
@@ -1411,104 +1391,88 @@
         });
     }
 
-    // ---- My Agents Pinned Section ----
-    function addMyAgentsSection() {
-        // Check if already added
-        if (document.getElementById('seer-my-agents-section')) return;
-        
-        const allAgentsHeader = Array.from(document.querySelectorAll('h2, h3, div')).find(el => 
-            el.textContent.trim() === 'All Agents'
-        );
-        
-        if (!allAgentsHeader) return;
-        
-        // Get all rows and find "My Agents"
-        const rows = getAgentRows(false);
-        const myAgentRows = rows.filter(row => row.getAttribute('data-seer-is-mine') === 'true');
-        
-        if (myAgentRows.length === 0) return;
-        
-        // Load saved state
-        const savedState = localStorage.getItem('seer-my-agents-collapsed');
-        let isCollapsed = savedState === 'true';
-        
-        // Create section container
-        const section = document.createElement('div');
-        section.id = 'seer-my-agents-section';
-        section.style.cssText = 'margin-bottom:16px;background:#FEFCE8;border:1px solid #FEF08A;border-radius:8px;padding:12px;';
-        
-        // Header
-        const header = document.createElement('div');
-        header.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;margin-bottom:8px;';
-        header.innerHTML = `
-            <span class="seer-my-collapse" style="font-size:12px;color:#854D0E;">${isCollapsed ? '▶' : '▼'}</span>
-            <span style="font-size:14px;">⭐</span>
-            <span style="font-weight:600;color:#854D0E;">My Agents</span>
-            <span style="background:#FEF08A;color:#854D0E;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;">${myAgentRows.length}</span>
-        `;
-        
-        // Content container for cloned rows
-        const content = document.createElement('div');
-        content.className = 'seer-my-agents-list';
-        content.style.cssText = `display:${isCollapsed ? 'none' : 'flex'};flex-direction:column;gap:4px;`;
-        
-        // Clone each "My Agent" row as a compact card
-        myAgentRows.forEach(row => {
-            const agentName = row.getAttribute('data-seer-agent-name') || 'Unknown';
-            const tags = row.getAttribute('data-seer-tags') || '';
-            
-            const card = document.createElement('div');
-            card.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 10px;background:white;border-radius:6px;border:1px solid #FEF08A;cursor:pointer;transition:background 0.15s;';
-            card.onmouseenter = () => card.style.background = '#FFFBEB';
-            card.onmouseleave = () => card.style.background = 'white';
-            
-            // Click to scroll to the original row
-            card.onclick = () => {
-                row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                row.style.background = '#FEF9C3';
-                setTimeout(() => row.style.background = '', 1500);
-            };
-            
-            const nameSpan = document.createElement('span');
-            nameSpan.textContent = agentName;
-            nameSpan.style.cssText = 'font-size:12px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-            
-            card.appendChild(nameSpan);
-            
-            // Add mini tag badges
-            if (tags) {
-                tags.split(',').slice(0, 3).forEach(tagName => {
-                    const cat = Object.values(config.categories).find(c => c.name === tagName.trim());
-                    if (cat) {
-                        const badge = document.createElement('span');
-                        badge.textContent = cat.icon;
-                        badge.title = cat.name;
-                        badge.style.cssText = 'font-size:10px;';
-                        card.appendChild(badge);
-                    }
-                });
+    // ---- My Agents Quick Filter (uses native NinjaCat Access dropdown) ----
+    function clickNativeAccessFilter(optionText) {
+        try {
+            // Find the Access dropdown (vue-select with "Access:" label)
+            const accessDropdown = document.querySelector('.vue-select');
+            if (!accessDropdown) {
+                console.log('[NinjaCat Seer Tags] Access dropdown not found');
+                return false;
             }
             
-            content.appendChild(card);
-        });
+            // Click to open dropdown
+            const header = accessDropdown.querySelector('.vue-select-header');
+            if (header) {
+                header.click();
+            }
+            
+            // Wait for dropdown to open, then click the option
+            setTimeout(() => {
+                const options = accessDropdown.querySelectorAll('.vue-dropdown-item');
+                for (const opt of options) {
+                    const text = opt.textContent?.trim();
+                    if (text === optionText) {
+                        opt.click();
+                        console.log(`[NinjaCat Seer Tags] Clicked Access filter: ${optionText}`);
+                        return;
+                    }
+                }
+                console.log(`[NinjaCat Seer Tags] Option "${optionText}" not found in Access dropdown`);
+            }, 100);
+            
+            return true;
+        } catch (error) {
+            console.error('[NinjaCat Seer Tags] Error clicking native Access filter:', error);
+            return false;
+        }
+    }
+    
+    function getCurrentAccessFilter() {
+        try {
+            const accessDropdown = document.querySelector('.vue-select');
+            if (!accessDropdown) return 'All Agents';
+            
+            const selectedText = accessDropdown.querySelector('.vue-select-header .truncate p');
+            return selectedText?.textContent?.trim() || 'All Agents';
+        } catch (e) {
+            return 'All Agents';
+        }
+    }
+    
+    function addMyAgentsButton() {
+        // Don't add if already exists
+        if (document.getElementById('seer-my-agents-btn')) return;
         
-        header.onclick = () => {
-            isCollapsed = !isCollapsed;
-            header.querySelector('.seer-my-collapse').textContent = isCollapsed ? '▶' : '▼';
-            content.style.display = isCollapsed ? 'none' : 'flex';
-            localStorage.setItem('seer-my-agents-collapsed', isCollapsed.toString());
+        const filtersRow = document.querySelector('#seer-tag-bar > div:last-child');
+        if (!filtersRow) return;
+        
+        const currentAccess = getCurrentAccessFilter();
+        const isMyAgentsActive = currentAccess === 'My Agents';
+        
+        const myAgentsBtn = document.createElement('button');
+        myAgentsBtn.id = 'seer-my-agents-btn';
+        myAgentsBtn.innerHTML = '⭐ My Agents';
+        myAgentsBtn.title = 'Quick filter to show only your agents';
+        myAgentsBtn.style.cssText = `background:${isMyAgentsActive ? '#F59E0B' : '#FEFCE8'};color:${isMyAgentsActive ? '#fff' : '#854D0E'};border:1px solid ${isMyAgentsActive ? '#F59E0B' : '#FEF08A'};border-radius:6px;padding:6px 12px;font-size:12px;font-weight:500;cursor:pointer;transition:all 0.15s;`;
+        
+        myAgentsBtn.onclick = () => {
+            if (getCurrentAccessFilter() === 'My Agents') {
+                clickNativeAccessFilter('All Agents');
+            } else {
+                clickNativeAccessFilter('My Agents');
+            }
+            // Update button state after a delay
+            setTimeout(() => {
+                const isActive = getCurrentAccessFilter() === 'My Agents';
+                myAgentsBtn.style.background = isActive ? '#F59E0B' : '#FEFCE8';
+                myAgentsBtn.style.color = isActive ? '#fff' : '#854D0E';
+                myAgentsBtn.style.borderColor = isActive ? '#F59E0B' : '#FEF08A';
+            }, 300);
         };
         
-        section.appendChild(header);
-        section.appendChild(content);
-        
-        // Insert before "All Agents" header
-        const filterBar = document.getElementById('seer-tag-bar');
-        if (filterBar && filterBar.nextSibling) {
-            filterBar.parentElement.insertBefore(section, filterBar.nextSibling);
-        } else if (allAgentsHeader.parentElement) {
-            allAgentsHeader.parentElement.insertBefore(section, allAgentsHeader);
-        }
+        // Insert at the beginning of filters row
+        filtersRow.insertBefore(myAgentsBtn, filtersRow.firstChild);
     }
 
     function insertFilterBar(bar) {
@@ -2242,24 +2206,65 @@
             
             modal.innerHTML = `
                 <h2 style="margin:0 0 8px 0;font-size:24px;font-weight:700;">⚙️ Settings</h2>
-                <p style="margin:0 0 16px 0;color:#6B7280;">Customize filters, data sources, and manage your configuration.</p>
+                <p style="margin:0 0 16px 0;color:#6B7280;">Configure your preferences, filters, and data sources.</p>
                 
-                <!-- Search box -->
-                <div style="margin-bottom:16px;">
-                    <input type="text" id="seer-settings-search" placeholder="Search filters..." style="width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:6px;font-size:14px;box-sizing:border-box;">
-                </div>
-                
-                <!-- Tabs -->
+                <!-- Tabs - General first for better UX -->
                 <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:2px solid #E5E7EB;">
-                    <button class="seer-tab-btn" data-tab="filters" style="padding:10px 20px;border:none;background:#3B82F6;color:white;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">Filters</button>
-                    <button class="seer-tab-btn" data-tab="sources" style="padding:10px 20px;border:none;background:#E5E7EB;color:#374151;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">Data Sources</button>
-                    <button class="seer-tab-btn" data-tab="general" style="padding:10px 20px;border:none;background:#E5E7EB;color:#374151;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">General</button>
+                    <button class="seer-tab-btn" data-tab="general" style="padding:10px 20px;border:none;background:#3B82F6;color:white;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">⚙️ General</button>
+                    <button class="seer-tab-btn" data-tab="filters" style="padding:10px 20px;border:none;background:#E5E7EB;color:#374151;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">🏷️ Tags</button>
+                    <button class="seer-tab-btn" data-tab="sources" style="padding:10px 20px;border:none;background:#E5E7EB;color:#374151;border-radius:6px 6px 0 0;font-weight:600;cursor:pointer;">📊 Sources</button>
                 </div>
                 
-                <!-- Filters Tab -->
-                <div id="seer-tab-filters" class="seer-tab-content">
+                <!-- General Tab (shown first) -->
+                <div id="seer-tab-general" class="seer-tab-content">
+                    <!-- My Agents Info -->
+                    <div style="padding:16px;background:#FEFCE8;border-radius:8px;border:1px solid #FEF08A;margin-bottom:12px;">
+                        <h3 style="margin:0 0 8px 0;font-size:16px;font-weight:600;color:#854D0E;">⭐ My Agents</h3>
+                        <p style="margin:0;color:#713F12;font-size:13px;">
+                            Use the <strong>⭐ My Agents</strong> button in the filter bar to quickly toggle NinjaCat's native "My Agents" filter.
+                            This shows only agents you own.
+                        </p>
+                    </div>
+                    
+                    <!-- Pagination -->
+                    <div style="padding:16px;background:#F9FAFB;border-radius:8px;border:1px solid #E5E7EB;margin-bottom:12px;">
+                        <h3 style="margin:0 0 8px 0;font-size:16px;font-weight:600;">📄 Pagination</h3>
+                        <p style="margin:0 0 12px 0;color:#6B7280;font-size:13px;">
+                            Set how many agents to show per page. Default: don't change (faster loading).
+                        </p>
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                            <label style="font-size:13px;font-weight:500;">Items per page:</label>
+                            <select id="seer-items-per-page" style="padding:8px 12px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px;cursor:pointer;">
+                                <option value="0" ${currentItemsPerPage === 0 ? 'selected' : ''}>Don't change (default)</option>
+                                <option value="10" ${currentItemsPerPage === 10 ? 'selected' : ''}>10</option>
+                                <option value="20" ${currentItemsPerPage === 20 ? 'selected' : ''}>20</option>
+                                <option value="50" ${currentItemsPerPage === 50 ? 'selected' : ''}>50</option>
+                                <option value="100" ${currentItemsPerPage === 100 ? 'selected' : ''}>100</option>
+                                <option value="999" ${currentItemsPerPage >= 999 ? 'selected' : ''}>Show All (slow)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Sections -->
+                    <div style="padding:16px;background:#F9FAFB;border-radius:8px;border:1px solid #E5E7EB;">
+                        <h3 style="margin:0 0 8px 0;font-size:16px;font-weight:600;">📊 Collapsible Sections</h3>
+                        <p style="margin:0 0 12px 0;color:#6B7280;font-size:13px;">
+                            Click section headers (Favorites, My Agents, All Agents) to collapse/expand.
+                        </p>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button id="seer-collapse-all" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:500;cursor:pointer;">Collapse All</button>
+                            <button id="seer-expand-all" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:500;cursor:pointer;">Expand All</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Tags Tab -->
+                <div id="seer-tab-filters" class="seer-tab-content" style="display:none;">
+                    <div style="margin-bottom:12px;">
+                        <input type="text" id="seer-settings-search" placeholder="Search tags..." style="width:100%;padding:10px;border:1px solid #D1D5DB;border-radius:6px;font-size:14px;box-sizing:border-box;">
+                    </div>
                     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-                        <button id="seer-add-filter" style="background:#10B981;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">+ Add Filter</button>
+                        <button id="seer-add-filter" style="background:#10B981;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">+ Add Tag</button>
                         <button id="seer-enable-all-filters" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✓ Enable All</button>
                         <button id="seer-disable-all-filters" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✗ Disable All</button>
                     </div>
@@ -2274,41 +2279,6 @@
                         <button id="seer-disable-all-sources" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-weight:600;cursor:pointer;">✗ Disable All</button>
                     </div>
                     <div id="seer-source-list"></div>
-                </div>
-                
-                <!-- General Tab -->
-                <div id="seer-tab-general" class="seer-tab-content" style="display:none;">
-                    <div style="padding:16px;background:#F9FAFB;border-radius:8px;border:1px solid #E5E7EB;">
-                        <h3 style="margin:0 0 12px 0;font-size:16px;font-weight:600;">📄 Pagination</h3>
-                        <p style="margin:0 0 12px 0;color:#6B7280;font-size:13px;">
-                            Set how many agents to show per page. By default, the script won't change pagination (faster loading).
-                        </p>
-                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                            <label style="font-size:13px;font-weight:500;">Items per page:</label>
-                            <select id="seer-items-per-page" style="padding:8px 12px;border:1px solid #D1D5DB;border-radius:6px;font-size:13px;cursor:pointer;">
-                                <option value="0" ${currentItemsPerPage === 0 ? 'selected' : ''}>Don't change (default)</option>
-                                <option value="10" ${currentItemsPerPage === 10 ? 'selected' : ''}>10</option>
-                                <option value="20" ${currentItemsPerPage === 20 ? 'selected' : ''}>20</option>
-                                <option value="50" ${currentItemsPerPage === 50 ? 'selected' : ''}>50</option>
-                                <option value="100" ${currentItemsPerPage === 100 ? 'selected' : ''}>100</option>
-                                <option value="999" ${currentItemsPerPage >= 999 ? 'selected' : ''}>Show All (slow)</option>
-                            </select>
-                        </div>
-                        <p style="margin:12px 0 0 0;color:#9CA3AF;font-size:11px;">
-                            ⚠️ "Show All" can be very slow with many agents. Use with caution.
-                        </p>
-                    </div>
-                    
-                    <div style="padding:16px;background:#F9FAFB;border-radius:8px;border:1px solid #E5E7EB;margin-top:12px;">
-                        <h3 style="margin:0 0 12px 0;font-size:16px;font-weight:600;">📊 Sections</h3>
-                        <p style="margin:0 0 12px 0;color:#6B7280;font-size:13px;">
-                            Collapsible sections help organize the page. Click section headers to collapse/expand.
-                        </p>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button id="seer-collapse-all" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:500;cursor:pointer;">Collapse All</button>
-                            <button id="seer-expand-all" style="background:#6B7280;color:white;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:500;cursor:pointer;">Expand All</button>
-                        </div>
-                    </div>
                 </div>
                 
                 <div style="padding-top:16px;border-top:1px solid #E5E7EB;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
@@ -2660,8 +2630,11 @@
 
     // ---- Refresh & Run ----
     function refreshPage() {
+        // Clear tagged markers so cards will be re-processed
+        document.querySelectorAll('[data-seer-tagged]').forEach(el => el.removeAttribute('data-seer-tagged'));
         document.querySelectorAll('.seer-tags, .seer-tag-agent-btn, .seer-suggest-btn').forEach(el => el.remove());
         document.getElementById('seer-tag-bar')?.remove();
+        document.getElementById('seer-my-agents-btn')?.remove();
         setTimeout(runAll, 300);
     }
 
