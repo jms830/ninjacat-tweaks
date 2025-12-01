@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.4.1
+// @version      2.5.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.4.1 - SVG-based data source detection with migration');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.5.0 - Improved data source detection');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -290,72 +290,83 @@
         const html = svg.outerHTML;
 
         // --- SQL: Explicit filter ID ---
-        if (svg.querySelector('filter#sql-a')) {
+        if (svg.querySelector('filter[id*="sql"]') || svg.querySelector('filter#sql-a')) {
             return 'sql';
         }
 
-        // --- Google Sheets: ID prefix ---
-        if (svg.querySelector('[id^="google-sheet-"]')) {
+        // --- Google Sheets: ID prefix or green sheet colors ---
+        if (svg.querySelector('[id*="google-sheet"]') || svg.querySelector('[id^="google-sheet-"]')) {
+            return 'sheets';
+        }
+        // Sheets fallback: green color palette typical of Sheets icon
+        if (html.includes('#0F9D58') && html.includes('#34A853')) {
             return 'sheets';
         }
 
-        // --- GA4: Orange palette + translate(7) group ---
+        // --- GA4: Orange palette (multiple checks for flexibility) ---
         if (
-            html.includes('transform="translate(7') &&
-            html.includes('fill="#F9AB00"') &&
-            html.includes('fill="#E37400"')
+            (html.includes('#F9AB00') && html.includes('#E37400')) ||
+            (html.includes('fill="#F9AB00"') && html.includes('fill="#E37400"'))
         ) {
             return 'ga4';
         }
 
-        // --- Google Search Console: 4-color G logo, no defs ---
+        // --- Google Ads: Yellow/blue/green combo ---
         if (
-            html.includes('fill="#4285F4"') &&
-            html.includes('fill="#34A853"') &&
-            html.includes('fill="#FBBC05"') &&
-            html.includes('fill="#EB4335"') &&
-            !svg.querySelector('defs')
+            (html.includes('#FBBC04') || html.includes('#FBBC05')) &&
+            html.includes('#4285F4') &&
+            html.includes('#34A853')
         ) {
+            // Could be Google G logo OR Google Ads - check for polygon (Ads has triangle)
+            if (html.includes('<polygon') || html.includes('polygon')) {
+                return 'googleAds';
+            }
+        }
+
+        // --- Google Search Console / Generic Google G: 4-color logo ---
+        if (
+            html.includes('#4285F4') &&
+            html.includes('#34A853') &&
+            (html.includes('#FBBC05') || html.includes('#FBBC04')) &&
+            html.includes('#EB4335')
+        ) {
+            // This is the Google G logo - used for Search Console in NinjaCat
             return 'gsc';
         }
 
-        // --- Google Ads: Yellow polygon + blue path + green circle ---
-        if (
-            html.includes('transform="translate(0 5.126)"') &&
-            html.includes('polygon fill="#FBBC04"') &&
-            html.includes('circle cx="23.487"') &&
-            html.includes('fill="#34A853"')
-        ) {
-            return 'googleAds';
+        // --- Meta (Facebook): Blue color or explicit ID ---
+        if (svg.querySelector('g#Facebook') || 
+            svg.querySelector('[id*="Facebook"]') ||
+            html.includes('id="Facebook"') ||
+            html.includes('id="facebook"')) {
+            return 'meta';
         }
-
-        // --- Meta (Facebook): Explicit ID ---
-        if (svg.querySelector('g#Facebook') || html.includes('id="Facebook"')) {
+        // Meta fallback: Facebook blue
+        if (html.includes('#1877F2') && !html.includes('#34A853')) {
             return 'meta';
         }
 
         // --- BigQuery: Hexagon + blue fill ---
         if (
-            html.includes('transform="translate(.182 9.724)"') &&
-            html.includes('fill="#4386FA"')
+            html.includes('#4386FA') &&
+            (html.includes('translate(.182') || html.includes('hexagon') || html.includes('Hexagon'))
         ) {
             return 'bigquery';
         }
 
-        // Fallback to text-based detection for backward compatibility
-        const textAttributes = ['data-tooltip-content', 'aria-label', 'title', 'alt'];
-        const textBlob = textAttributes
-            .map(attr => svg.getAttribute(attr))
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase();
+        // Fallback to text-based detection (check parent elements too)
+        const textSources = [svg, svg.parentElement, svg.parentElement?.parentElement].filter(Boolean);
+        const textBlob = textSources.map(el => {
+            const attrs = ['data-tooltip-content', 'aria-label', 'title', 'alt'];
+            return attrs.map(attr => el.getAttribute?.(attr) || '').join(' ');
+        }).join(' ').toLowerCase();
 
         // Fallback patterns
-        if (textBlob.includes('google analytics') || textBlob.includes('ga4')) return 'ga4';
+        if (textBlob.includes('google analytics') || textBlob.includes('ga4') || textBlob.includes('analytics')) return 'ga4';
         if (textBlob.includes('search console') || textBlob.includes('gsc')) return 'gsc';
-        if (textBlob.includes('google sheets') || textBlob.includes('sheet')) return 'sheets';
+        if (textBlob.includes('google sheets') || textBlob.includes('sheets') || textBlob.includes('spreadsheet')) return 'sheets';
         if (textBlob.includes('meta') || textBlob.includes('facebook')) return 'meta';
-        if (textBlob.includes('google ads') || textBlob.includes('adwords')) return 'googleAds';
+        if (textBlob.includes('google ads') || textBlob.includes('adwords') || textBlob.includes('ads')) return 'googleAds';
         if (textBlob.includes('bigquery') || textBlob.includes('big query')) return 'bigquery';
         if (textBlob.includes('sql') || textBlob.includes('database')) return 'sql';
 
@@ -369,18 +380,54 @@
     function detectDataSources(card) {
         const found = new Set();
         
-        // Find all SVGs in the data sources area
-        const svgs = card.querySelectorAll('svg');
+        // First, try to find the data sources container (usually has gap-3 and contains small SVGs)
+        const dataSourceContainers = card.querySelectorAll('.flex.items-center.gap-3, .flex.gap-3, [class*="gap-3"]');
         
-        svgs.forEach(svg => {
+        // Collect SVGs from data source areas (small icons, usually 18-20px)
+        const candidateSvgs = new Set();
+        
+        dataSourceContainers.forEach(container => {
+            container.querySelectorAll('svg').forEach(svg => {
+                // Filter to small icons (data source icons are typically small)
+                const width = svg.getAttribute('width') || svg.style.width || '';
+                const height = svg.getAttribute('height') || svg.style.height || '';
+                const classList = svg.className?.baseVal || svg.className || '';
+                
+                // Include if it's a small icon or has typical data source icon classes
+                if (width.includes('18') || width.includes('20') || width.includes('24') ||
+                    height.includes('18') || height.includes('20') || height.includes('24') ||
+                    classList.includes('w-[18px]') || classList.includes('w-[20px]') ||
+                    classList.includes('h-[18px]') || classList.includes('h-[20px]')) {
+                    candidateSvgs.add(svg);
+                }
+            });
+        });
+        
+        // If no candidates found in containers, fall back to all SVGs but filter by size
+        if (candidateSvgs.size === 0) {
+            card.querySelectorAll('svg').forEach(svg => {
+                const rect = svg.getBoundingClientRect();
+                // Data source icons are typically 18-24px
+                if (rect.width >= 14 && rect.width <= 30 && rect.height >= 14 && rect.height <= 30) {
+                    candidateSvgs.add(svg);
+                }
+            });
+        }
+        
+        candidateSvgs.forEach(svg => {
             const source = detectSourceFromSvg(svg);
             if (source) {
-                debugLog(`Detected source: ${source} from SVG`);
+                debugLog(`Detected source: ${source} from SVG`, svg.outerHTML.substring(0, 100));
                 if (dataSources[source] && dataSources[source].enabled) {
                     found.add(dataSources[source].name);
                 }
             }
         });
+
+        // Debug: log what we found
+        if (found.size > 0) {
+            debugLog(`Card data sources: ${Array.from(found).join(', ')}`);
+        }
 
         return Array.from(found);
     }

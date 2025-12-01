@@ -1,5 +1,41 @@
 # Fixes Applied to Original Script
 
+## Version 2.5.0 - Robust Data Source Detection
+
+### Major Improvements
+
+#### More Flexible SVG Detection
+**Problem:** v2.4.x SVG detection was too strict - exact string matches failed on actual NinjaCat HTML.
+
+**Solution:** Made detection more flexible and robust:
+- **GA4**: Now matches `#F9AB00` + `#E37400` colors anywhere in SVG
+- **Google Ads**: Detects yellow/blue/green combo with polygon element
+- **Search Console**: 4-color Google G logo detection
+- **Meta**: Multiple fallbacks including `#1877F2` Facebook blue
+- **BigQuery**: Hexagon + `#4386FA` blue
+- **Google Sheets**: Green color palette + ID checks
+- **SQL**: Filter ID patterns
+
+#### Smarter SVG Selection
+**Problem:** Previous code scanned ALL SVGs in a card (hundreds), including navigation arrows and UI icons.
+
+**Solution:** Now filters to only data source icons:
+1. First looks for icons in `.flex.items-center.gap-3` containers
+2. Filters by icon size (14-30px typical for data source icons)
+3. Falls back to size-based filtering if no containers found
+4. Significantly reduces false positives
+
+#### Better Text Fallback
+- Now checks parent elements for tooltip/aria-label attributes
+- More comprehensive keyword matching
+
+### Technical Changes
+- `detectSourceFromSvg()` - More flexible color/structure matching
+- `detectDataSources()` - Smarter SVG selection, filters by size and container
+- Added debug logging to track detection
+
+---
+
 ## Version 2.4.0 - Improved Data Source Detection
 
 ### Major Improvements
