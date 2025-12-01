@@ -29,9 +29,9 @@ This contract defines the Tampermonkey userscript metadata block structure. The 
 // @grant        none
 // @run-at       document-end
 // @author       NinjaCat Tweaks
-// @homepage     https://github.com/jordan/ninjacat-tweaks
-// @updateURL    https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.meta.js
-// @downloadURL  https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
+// @homepage     https://github.com/jms830/ninjacat-tweaks
+// @updateURL    https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.meta.js
+// @downloadURL  https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
 // ==/UserScript==
 ```
 
@@ -63,7 +63,7 @@ This contract defines the Tampermonkey userscript metadata block structure. The 
 
 **Requirements**:
 - Valid URL format
-- Use project-specific namespace for production (e.g., `https://github.com/jordan/ninjacat-tweaks`)
+- Use project-specific namespace for production (e.g., `https://github.com/jms830/ninjacat-tweaks`)
 - Default `http://tampermonkey.net/` acceptable for simple scripts
 
 **Validation**: Valid URL
@@ -189,7 +189,7 @@ This contract defines the Tampermonkey userscript metadata block structure. The 
 
 ### @homepage
 
-**Value**: `https://github.com/jordan/ninjacat-tweaks`
+**Value**: `https://github.com/jms830/ninjacat-tweaks`
 
 **Purpose**: Link to project repository
 
@@ -203,7 +203,7 @@ This contract defines the Tampermonkey userscript metadata block structure. The 
 
 ### @updateURL
 
-**Value**: `https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.meta.js`
+**Value**: `https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.meta.js`
 
 **Purpose**: Enable automatic update checking
 
@@ -228,7 +228,7 @@ This contract defines the Tampermonkey userscript metadata block structure. The 
 
 ### @downloadURL
 
-**Value**: `https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js`
+**Value**: `https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js`
 
 **Purpose**: Direct download link for updates and installation
 
@@ -364,7 +364,7 @@ Script updated to v1.0.1
 
 **Installation URL**:
 ```
-https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
+https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
 ```
 
 **Benefits**:
@@ -471,9 +471,9 @@ GM info: {
 // @grant        none
 // @run-at       document-end
 // @author       NinjaCat Tweaks
-// @homepage     https://github.com/jordan/ninjacat-tweaks
-// @updateURL    https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.meta.js
-// @downloadURL  https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
+// @homepage     https://github.com/jms830/ninjacat-tweaks
+// @updateURL    https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.meta.js
+// @downloadURL  https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
 // ==/UserScript==
 
 (function() {

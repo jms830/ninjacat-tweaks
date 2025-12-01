@@ -34,7 +34,7 @@ You need a userscript manager extension installed in your browser:
 **Easiest method with automatic updates**:
 
 1. Install Tampermonkey extension (see prerequisites above)
-2. Click this link: [Install NinjaCat Seer Tags](https://raw.githubusercontent.com/jordan/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js)
+2. Click this link: [Install NinjaCat Seer Tags](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js)
 3. Tampermonkey will open an install dialog
 4. Click **"Install"**
 5. Navigate to NinjaCat agents page: https://app.ninjacat.io/agency/data/agents
@@ -306,7 +306,7 @@ If you installed via the GitHub raw URL:
 ### Manual Updates (Copy-Paste Installation)
 
 If you installed via copy-paste:
-1. Check the [GitHub repository](https://github.com/jordan/ninjacat-tweaks) for updates
+1. Check the [GitHub repository](https://github.com/jms830/ninjacat-tweaks) for updates
 2. Open Tampermonkey dashboard
 3. Click "Edit" on the script
 4. Replace all code with the new version
@@ -322,7 +322,7 @@ Check [CHANGELOG.md](../../userscripts/CHANGELOG.md) for version history and rel
 
 ### Need Help?
 
-- **GitHub Issues**: [Report a bug or request a feature](https://github.com/jordan/ninjacat-tweaks/issues)
+- **GitHub Issues**: [Report a bug or request a feature](https://github.com/jms830/ninjacat-tweaks/issues)
 - **Email**: [Your contact email]
 - **Slack**: #ninjacat-tweaks (if internal Seer channel exists)
 
@@ -415,9 +415,9 @@ See [CONTRIBUTING.md](../../CONTRIBUTING.md) for detailed guidelines.
 
 **Created by**: NinjaCat Tweaks Team  
 **Maintained by**: [Your Name/Team]  
-**Repository**: https://github.com/jordan/ninjacat-tweaks
+**Repository**: https://github.com/jms830/ninjacat-tweaks
 
-**Thanks to**: Seer Interactive team for the division categories and keyword patterns
+**Thanks to**: the community for feedback and feature suggestions
 
 ---
 
@@ -448,7 +448,7 @@ See [CONTRIBUTING.md](../../CONTRIBUTING.md) for detailed guidelines.
 │   • Modify 'categories' object to change colors         │
 │                                                         │
 │ SUPPORT:                                                │
-│   • GitHub: github.com/jordan/ninjacat-tweaks           │
+│   • GitHub: github.com/jms830/ninjacat-tweaks           │
 │   • Issues: Report bugs via GitHub Issues               │
 │                                                         │
 └─────────────────────────────────────────────────────────┘

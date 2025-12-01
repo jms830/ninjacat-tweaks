@@ -38,7 +38,7 @@ Agents are automatically tagged based on keywords in their names:
 - And 7 more default categories...
 
 ### Filter Bar
-![Filter Bar](../tests/ninjacat-agents-screenshot.jpg)
+<!-- Screenshot removed for public release -->
 
 - **Division Filters** - Click to show only agents matching that division
 - **Data Source Filters** - Filter by Google Analytics, GSC, Meta Ads, etc.
@@ -104,7 +104,7 @@ This shares: all filters, data sources, patterns, AND manual agent tags.
 | WIP | 🚧 | `[wip]`, `testing`, `test version` |
 | DNU | ⛔ | `[dnu]`, `do not use`, `sandbox` |
 | PROD | ✅ | `[prod]` |
-| CLIENT | 👤 | `[paychex]`, `[rightway]`, `[veolia]`, etc. |
+| CLIENT | 👤 | `[client]`, `[acme]`, `[example]`, etc. |
 | UTILITY | 🔧 | `[utility]`, `assistant`, `helper`, `api`, `connector` |
 
 All filters are fully customizable in Settings!

@@ -49,15 +49,15 @@
             utility: { name: 'UTILITY', color: '#64748B', icon: '🔧', enabled: true, order: 9 }
         },
         patterns: {
-            ana:     ['[ana]', 'analytics', 'ga4', 'event drop', 'anomalie', 'drop-off', '[garman]', '[brice]', '[john l]', 'by garman', 'by brice', 'by john l'],
-            pdm:     ['[pdm]', 'paid', 'ppc', 'ad copy', 'google ads', 'meta ads', 'campaign', 'spend', 'budget', '[britt]', 'by britt'],
-            seo:     ['[seo]', 'keyword', 'organic', 'serp', 'search intent', 'landing page', 'content', 'backlink', 'rankings', '[teresa]', 'by teresa'],
-            ce:      ['[ce', 'client', 'call prep', 'qbr', 'engagement', 'horizon', '[hanna]', '[lauren]', 'by hanna', 'by lauren'],
-            ops:     ['[ops]', 'taxonomy', 'operation', 'process', 'admin', 'calendar', '[scott]', 'by scott'],
+            ana:     ['[ana]', 'analytics', 'ga4', 'event drop', 'anomalie', 'drop-off'],
+            pdm:     ['[pdm]', 'paid', 'ppc', 'ad copy', 'google ads', 'meta ads', 'campaign', 'spend', 'budget'],
+            seo:     ['[seo]', 'keyword', 'organic', 'serp', 'search intent', 'landing page', 'content', 'backlink', 'rankings'],
+            ce:      ['[ce', 'client', 'call prep', 'qbr', 'engagement', 'horizon'],
+            ops:     ['[ops]', 'taxonomy', 'operation', 'process', 'admin', 'calendar'],
             wip:     ['[wip]', 'wip]', 'testing', 'test version'],
             dnu:     ['[dnu]', '[do not use]', '[donotuse]', 'sandbox'],
-            prod:    ['[prod]', '[lydia]', '[claire]', '[tracy]', 'by lydia', 'by claire', 'by tracy'],
-            client:  ['[paychex]', '[rightway]', '[veolia]', '[chewy]', '[brightstar]', '[pandadoc]', '[trex]'],
+            prod:    ['[prod]', 'production', 'live', 'approved'],
+            client:  ['[client]', '[acme]', '[example]'],
             utility: ['[utility]', 'assistant', 'helper', 'api', 'connector', 'builder', 'retriever', 'extractor', 'scraper']
         }
     };
