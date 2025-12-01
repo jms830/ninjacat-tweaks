@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.3.0
+// @version      2.4.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*

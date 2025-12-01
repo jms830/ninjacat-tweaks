@@ -1,5 +1,41 @@
 # Fixes Applied to Original Script
 
+## Version 2.4.0 - Improved Data Source Detection
+
+### Major Improvements
+
+#### SVG-Based Data Source Detection
+**Problem:** Previous text-based detection was fragile and imprecise. It relied on matching text in tooltips/aria-labels that could change with UI updates.
+
+**Solution:** Implemented stable SVG fingerprint detection based on ChatGPT's recommendation:
+- **SQL**: Detects via `filter#sql-a` ID
+- **Google Sheets**: Detects via `[id^="google-sheet-"]` prefix
+- **GA4**: Detects via orange color palette (`#F9AB00`, `#E37400`) + `translate(7)` transform
+- **Search Console**: Detects via 4-color Google G logo without defs
+- **Google Ads**: Detects via yellow polygon + blue path + green circle structure
+- **Meta (Facebook)**: Detects via `g#Facebook` ID
+- **BigQuery**: Detects via hexagon shape + `#4386FA` blue fill + specific transform
+
+**Benefits:**
+- **Stable**: Uses SVG internals (IDs, colors, structure) that rarely change
+- **Precise**: Each icon has unique SVG fingerprint
+- **Maintainable**: Clear detection rules per source
+- **Fast**: Direct SVG inspection vs. text crawling
+- **Backward compatible**: Falls back to text matching if SVG detection fails
+
+### New Data Sources
+- Added **SQL** database source
+- Added **BigQuery** data warehouse source
+- Updated data source names for clarity (e.g., "GA4" instead of "Google Analytics")
+
+### Technical Changes
+- New function: `detectSourceFromSvg()` with stable SVG fingerprinting
+- Updated: `detectDataSources()` to use SVG-based detection first
+- Updated: `DEFAULT_DATA_SOURCES` configuration
+- Added debug logging for source detection when debug mode enabled
+
+---
+
 ## Version 2.3.0 - Flashing Icons & My Agents Button Fixes
 
 ### Bug Fixes

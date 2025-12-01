@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.3.0
+// @version      2.4.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.3.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.4.0 - Improved SVG-based data source detection');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -63,11 +63,13 @@
     };
 
     const DEFAULT_DATA_SOURCES = {
-        ga: { name: 'Google Analytics', color: '#F97316', icon: '📊', patterns: ['google analytics', 'ga4', 'ga 4', 'analytics'], enabled: true, order: 0 },
-        gsc: { name: 'Google Search Console', color: '#0EA5E9', icon: '🔎', patterns: ['search console', 'gsc'], enabled: true, order: 1 },
-        sheets: { name: 'Google Sheets', color: '#22C55E', icon: '📄', patterns: ['google sheets', 'gsheets', 'sheet', 'spreadsheet'], enabled: true, order: 2 },
-        meta: { name: 'Meta Ads', color: '#2563EB', icon: '📘', patterns: ['meta ads', 'facebook ads', 'meta'], enabled: true, order: 3 },
-        googleAds: { name: 'Google Ads', color: '#FACC15', icon: '💰', patterns: ['google ads', 'googlead', 'adwords'], enabled: true, order: 4 }
+        ga4: { name: 'GA4', color: '#F97316', icon: '📊', enabled: true, order: 0 },
+        gsc: { name: 'Search Console', color: '#0EA5E9', icon: '🔎', enabled: true, order: 1 },
+        sheets: { name: 'Google Sheets', color: '#22C55E', icon: '📄', enabled: true, order: 2 },
+        meta: { name: 'Meta Ads', color: '#2563EB', icon: '📘', enabled: true, order: 3 },
+        googleAds: { name: 'Google Ads', color: '#FACC15', icon: '💰', enabled: true, order: 4 },
+        sql: { name: 'SQL', color: '#64748B', icon: '🗄️', enabled: true, order: 5 },
+        bigquery: { name: 'BigQuery', color: '#4386FA', icon: '🔷', enabled: true, order: 6 }
     };
 
     const DEFAULT_ICONS = ['📈', '💸', '🔍', '🤝', '🛠️', '🚧', '⛔', '✅', '👤', '🔧', '📊', '🎯', '💡', '🔔', '📁', '🏷️', '⚡', '🌟', '📋', '🎨', '🔎', '📄', '📘', '💰', '🚀', '💎', '🔥', '❄️', '🌈', '🎪'];
@@ -276,23 +278,103 @@
             .sort((a, b) => (a[1].order || 0) - (b[1].order || 0));
     }
 
+    /**
+     * Detect data source from SVG icon using stable SVG internals
+     * More reliable than text matching - uses filter IDs, colors, and structure
+     */
+    function detectSourceFromSvg(svg) {
+        const html = svg.outerHTML;
+
+        // --- SQL: Explicit filter ID ---
+        if (svg.querySelector('filter#sql-a')) {
+            return 'sql';
+        }
+
+        // --- Google Sheets: ID prefix ---
+        if (svg.querySelector('[id^="google-sheet-"]')) {
+            return 'sheets';
+        }
+
+        // --- GA4: Orange palette + translate(7) group ---
+        if (
+            html.includes('transform="translate(7') &&
+            html.includes('fill="#F9AB00"') &&
+            html.includes('fill="#E37400"')
+        ) {
+            return 'ga4';
+        }
+
+        // --- Google Search Console: 4-color G logo, no defs ---
+        if (
+            html.includes('fill="#4285F4"') &&
+            html.includes('fill="#34A853"') &&
+            html.includes('fill="#FBBC05"') &&
+            html.includes('fill="#EB4335"') &&
+            !svg.querySelector('defs')
+        ) {
+            return 'gsc';
+        }
+
+        // --- Google Ads: Yellow polygon + blue path + green circle ---
+        if (
+            html.includes('transform="translate(0 5.126)"') &&
+            html.includes('polygon fill="#FBBC04"') &&
+            html.includes('circle cx="23.487"') &&
+            html.includes('fill="#34A853"')
+        ) {
+            return 'googleAds';
+        }
+
+        // --- Meta (Facebook): Explicit ID ---
+        if (svg.querySelector('g#Facebook') || html.includes('id="Facebook"')) {
+            return 'meta';
+        }
+
+        // --- BigQuery: Hexagon + blue fill ---
+        if (
+            html.includes('transform="translate(.182 9.724)"') &&
+            html.includes('fill="#4386FA"')
+        ) {
+            return 'bigquery';
+        }
+
+        // Fallback to text-based detection for backward compatibility
+        const textAttributes = ['data-tooltip-content', 'aria-label', 'title', 'alt'];
+        const textBlob = textAttributes
+            .map(attr => svg.getAttribute(attr))
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+
+        // Fallback patterns
+        if (textBlob.includes('google analytics') || textBlob.includes('ga4')) return 'ga4';
+        if (textBlob.includes('search console') || textBlob.includes('gsc')) return 'gsc';
+        if (textBlob.includes('google sheets') || textBlob.includes('sheet')) return 'sheets';
+        if (textBlob.includes('meta') || textBlob.includes('facebook')) return 'meta';
+        if (textBlob.includes('google ads') || textBlob.includes('adwords')) return 'googleAds';
+        if (textBlob.includes('bigquery') || textBlob.includes('big query')) return 'bigquery';
+        if (textBlob.includes('sql') || textBlob.includes('database')) return 'sql';
+
+        return null;
+    }
+
+    /**
+     * Detect all data sources in an agent card
+     * Returns array of source names
+     */
     function detectDataSources(card) {
         const found = new Set();
-        const candidates = card.querySelectorAll('img, svg, [data-tooltip-content], [aria-label], [title], span');
-        const texts = [];
-
-        candidates.forEach(el => {
-            ['data-tooltip-content', 'aria-label', 'title', 'alt'].forEach(attr => {
-                const value = el.getAttribute && el.getAttribute(attr);
-                if (value) texts.push(value);
-            });
-            if (el.textContent) texts.push(el.textContent);
-        });
-
-        const textBlob = texts.join(' ').toLowerCase();
-        Object.entries(dataSources).forEach(([key, source]) => {
-            if (source.enabled && source.patterns.some(pattern => textBlob.includes(pattern.toLowerCase()))) {
-                found.add(source.name);
+        
+        // Find all SVGs in the data sources area
+        const svgs = card.querySelectorAll('svg');
+        
+        svgs.forEach(svg => {
+            const source = detectSourceFromSvg(svg);
+            if (source) {
+                debugLog(`Detected source: ${source} from SVG`);
+                if (dataSources[source] && dataSources[source].enabled) {
+                    found.add(dataSources[source].name);
+                }
             }
         });
 
