@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.2.0
+// @version      2.3.0
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.2.0');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.3.0');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -193,6 +193,20 @@
     let excludedCategories = savedFilterState.excludedCategories || [];
     let excludedOwners = savedFilterState.excludedOwners || [];
     let timeFilter = savedFilterState.timeFilter || 'all';
+    
+    // Track which agents we've already processed to prevent flashing
+    // Key: agent name, Value: { element: WeakRef, lastTagged: timestamp }
+    const taggedAgentsCache = new Map();
+    let isTaggingInProgress = false;
+    
+    // Debug logging utility
+    const DEBUG = localStorage.getItem('seer-debug') === 'true';
+    function debugLog(...args) {
+        if (DEBUG) {
+            console.log('[NinjaCat Seer Tags DEBUG]', ...args);
+        }
+    }
+    // Enable debug mode by running in console: localStorage.setItem('seer-debug', 'true'); location.reload();
 
     // ---- Global Keyboard Handler ----
     document.addEventListener('keydown', (e) => {
@@ -442,41 +456,71 @@
     // ---- Tagging Logic ----
     function tagAgentCards() {
         try {
+            // Prevent re-entry while tagging is in progress
+            if (isTaggingInProgress) {
+                debugLog('Tagging already in progress, skipping');
+                return;
+            }
+            isTaggingInProgress = true;
+            
             const agentCards = getAgentRows();
-            if (agentCards.length === 0) return;
+            if (agentCards.length === 0) {
+                isTaggingInProgress = false;
+                return;
+            }
 
-            // Count how many cards need tagging (don't have the marker yet)
-            const untaggedCards = agentCards.filter(card => !card.hasAttribute('data-seer-tagged'));
-            if (untaggedCards.length === 0) {
+            // Check which cards need tagging:
+            // 1. Cards that don't have our tag container
+            // 2. Cards whose agent name isn't in our cache with a matching element
+            const cardsToProcess = agentCards.filter(card => {
+                // If the card already has our tags container, skip it
+                if (card.querySelector('.seer-tags')) {
+                    return false;
+                }
+                
+                // Get agent name and check cache
+                const agentName = getAgentName(card);
+                if (!agentName) return true; // No name, needs processing
+                
+                // Check if we've tagged this agent before
+                const cached = taggedAgentsCache.get(agentName);
+                if (!cached) return true; // Not in cache, needs processing
+                
+                // Check if the cached element is still the same DOM node
+                const cachedElement = cached.elementRef?.deref?.();
+                if (cachedElement === card) {
+                    return false; // Same element, already tagged
+                }
+                
+                // Different element (Vue/React re-rendered), needs re-processing
+                return true;
+            });
+            
+            if (cardsToProcess.length === 0) {
                 // All cards already tagged, just apply filters
                 applyFilters();
+                isTaggingInProgress = false;
                 return;
             }
             
-            console.log(`[NinjaCat Seer Tags] Tagging ${untaggedCards.length} new agent cards (${agentCards.length} total)`);
+            console.log(`[NinjaCat Seer Tags] Tagging ${cardsToProcess.length} agent cards (${agentCards.length} total)`);
             
-            agentCards.forEach((card, index) => {
+            cardsToProcess.forEach((card, index) => {
                 try {
-                    // Skip cards that are already tagged to prevent flashing
-                    if (card.hasAttribute('data-seer-tagged')) {
-                        return;
-                    }
+                    const txt = card.innerText || '';
+                    const agentName = getAgentName(card);
                     
-                    // Mark this card as tagged
-                    card.setAttribute('data-seer-tagged', 'true');
-                    
-                    // Remove existing elements (shouldn't exist, but just in case)
+                    // Remove any existing seer elements (for re-rendered nodes)
                     card.querySelector('.seer-tags')?.remove();
                     card.querySelector('.seer-tag-agent-btn')?.remove();
                     card.querySelector('.seer-suggest-btn')?.remove();
 
-                    const txt = card.innerText || '';
-                    const agentName = getAgentName(card);
                     const tags = getTagsForText(txt, agentName);
                     const sources = detectDataSources(card);
                     const dateInfo = extractDateFromRow(card);
                     const ownerInfo = extractOwnerFromRow(card);
                     
+                    // Set data attributes for filtering
                     card.setAttribute('data-seer-tags', tags.map(t => t.name).join(','));
                     card.setAttribute('data-seer-datasources', sources.join(','));
                     card.setAttribute('data-seer-has-tags', tags.length > 0 ? 'true' : 'false');
@@ -532,6 +576,12 @@
                         suggestBtn.onmouseleave = () => suggestBtn.style.opacity = '0.7';
                         suggestBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openSuggestPatternModal(agentName); };
                         tagContainer.appendChild(suggestBtn);
+                        
+                        // Update cache with WeakRef to this element
+                        taggedAgentsCache.set(agentName, {
+                            elementRef: new WeakRef(card),
+                            lastTagged: Date.now()
+                        });
                     }
 
                     let insertionTarget = card.querySelector('[data-automation-id*="agent-name"], [data-testid*="agent-name"], div.flex.items-center > div > div > p');
@@ -549,8 +599,11 @@
             applyFilters();
             // Update owners dropdown after tagging completes
             setTimeout(() => updateOwnersDropdown(), 100);
+            
+            isTaggingInProgress = false;
         } catch (error) {
             console.error('[NinjaCat Seer Tags] Error in tagAgentCards:', error);
+            isTaggingInProgress = false;
         }
     }
 
@@ -1392,10 +1445,39 @@
     }
 
     // ---- My Agents Quick Filter (uses native NinjaCat Access dropdown) ----
+    
+    /**
+     * Finds the Access dropdown by looking for a vue-select that contains "Access:" text
+     */
+    function findAccessDropdown() {
+        // Look for all vue-select elements
+        const vueSelects = document.querySelectorAll('.vue-select');
+        
+        for (const dropdown of vueSelects) {
+            // Check if this dropdown has "Access:" label
+            const headerText = dropdown.querySelector('.vue-select-header')?.textContent || '';
+            if (headerText.includes('Access:')) {
+                return dropdown;
+            }
+        }
+        
+        // Fallback: look for vue-select near search bar (usually in same row)
+        const searchBar = document.querySelector('[data-automation-id="search-bar"]');
+        if (searchBar) {
+            const row = searchBar.closest('.flex.gap-4');
+            if (row) {
+                const dropdown = row.querySelector('.vue-select');
+                if (dropdown) return dropdown;
+            }
+        }
+        
+        // Last fallback: first vue-select
+        return document.querySelector('.vue-select');
+    }
+    
     function clickNativeAccessFilter(optionText) {
         try {
-            // Find the Access dropdown (vue-select with "Access:" label)
-            const accessDropdown = document.querySelector('.vue-select');
+            const accessDropdown = findAccessDropdown();
             if (!accessDropdown) {
                 console.log('[NinjaCat Seer Tags] Access dropdown not found');
                 return false;
@@ -1405,11 +1487,24 @@
             const header = accessDropdown.querySelector('.vue-select-header');
             if (header) {
                 header.click();
+                console.log('[NinjaCat Seer Tags] Clicked Access dropdown header');
             }
             
             // Wait for dropdown to open, then click the option
             setTimeout(() => {
-                const options = accessDropdown.querySelectorAll('.vue-dropdown-item');
+                // The dropdown might be inside the vue-select or appended to body
+                let options = accessDropdown.querySelectorAll('.vue-dropdown-item');
+                
+                // If no options found, check for dropdown in body (Vue sometimes portals dropdowns)
+                if (options.length === 0) {
+                    const dropdown = accessDropdown.querySelector('.vue-dropdown');
+                    if (dropdown) {
+                        options = dropdown.querySelectorAll('.vue-dropdown-item');
+                    }
+                }
+                
+                console.log(`[NinjaCat Seer Tags] Found ${options.length} dropdown options`);
+                
                 for (const opt of options) {
                     const text = opt.textContent?.trim();
                     if (text === optionText) {
@@ -1419,7 +1514,7 @@
                     }
                 }
                 console.log(`[NinjaCat Seer Tags] Option "${optionText}" not found in Access dropdown`);
-            }, 100);
+            }, 150);
             
             return true;
         } catch (error) {
@@ -1430,12 +1525,24 @@
     
     function getCurrentAccessFilter() {
         try {
-            const accessDropdown = document.querySelector('.vue-select');
+            const accessDropdown = findAccessDropdown();
             if (!accessDropdown) return 'All Agents';
             
+            // Look for selected text in the header
             const selectedText = accessDropdown.querySelector('.vue-select-header .truncate p');
-            return selectedText?.textContent?.trim() || 'All Agents';
+            if (selectedText?.textContent) {
+                return selectedText.textContent.trim();
+            }
+            
+            // Fallback: look for highlighted/selected item in dropdown
+            const selectedItem = accessDropdown.querySelector('.vue-dropdown-item.selected');
+            if (selectedItem?.textContent) {
+                return selectedItem.textContent.trim();
+            }
+            
+            return 'All Agents';
         } catch (e) {
+            console.error('[NinjaCat Seer Tags] Error getting current Access filter:', e);
             return 'All Agents';
         }
     }

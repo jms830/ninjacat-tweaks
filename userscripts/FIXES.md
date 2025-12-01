@@ -1,5 +1,46 @@
 # Fixes Applied to Original Script
 
+## Version 2.3.0 - Flashing Icons & My Agents Button Fixes
+
+### Bug Fixes
+
+#### 1. Fixed Flashing Tags/Icons Issue
+**Problem:** Tags and icons kept flashing/re-rendering constantly.
+
+**Root Cause:** NinjaCat's Vue framework replaces entire DOM nodes when re-rendering. The script was using a `data-seer-tagged` attribute to track processed cards, but this attribute was lost when Vue replaced the DOM element. The MutationObserver then triggered re-tagging, causing constant flashing.
+
+**Solution:**
+- Added a memory-based tracking system using a `Map` called `taggedAgentsCache`
+- Uses `WeakRef` to track DOM elements without preventing garbage collection
+- Each cache entry stores: `{ elementRef: WeakRef, lastTagged: timestamp }`
+- On each run, checks if card already has `.seer-tags` container
+- Compares cached WeakRef element to current element to detect Vue re-renders
+- Only re-processes if element changed or is new
+- Added `isTaggingInProgress` flag to prevent re-entry during tagging
+
+#### 2. Fixed My Agents Button Not Working
+**Problem:** The "My Agents" quick filter button wasn't clicking the native Access dropdown.
+
+**Root Cause:** The `.vue-select` selector was too generic and could match multiple dropdowns on the page.
+
+**Solution:**
+- Added `findAccessDropdown()` function that looks for vue-select containing "Access:" text
+- Falls back to searching near the search bar, then to first vue-select
+- Improved `clickNativeAccessFilter()` with better logging
+- Improved `getCurrentAccessFilter()` with fallback to check selected item class
+
+#### 3. Added Debug Logging System
+- Added `DEBUG` flag controlled via localStorage
+- Enable by running in browser console: `localStorage.setItem('seer-debug', 'true'); location.reload();`
+- Verbose logging for diagnosing issues without cluttering normal console
+
+### Technical Changes
+- New variables: `taggedAgentsCache`, `isTaggingInProgress`, `DEBUG`, `debugLog()`
+- New function: `findAccessDropdown()`
+- Updated: `tagAgentCards()`, `clickNativeAccessFilter()`, `getCurrentAccessFilter()`
+
+---
+
 ## Version 1.5.0 - Major UX Overhaul & Team Sharing
 
 ### New Features
