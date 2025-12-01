@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.4.0
+// @version      2.4.1
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.4.0 - Improved SVG-based data source detection');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.4.1 - SVG-based data source detection with migration');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -110,6 +110,10 @@
                 Object.keys(parsed).forEach((k, i) => {
                     if (parsed[k].order === undefined) parsed[k].order = i;
                     if (parsed[k].enabled === undefined) parsed[k].enabled = true;
+                    // Migration: Remove old patterns property (v2.4.0+ uses SVG detection)
+                    if (parsed[k].patterns) {
+                        delete parsed[k].patterns;
+                    }
                 });
                 return parsed;
             }
@@ -2710,20 +2714,28 @@
         header.appendChild(colorInput);
         header.appendChild(deleteBtn);
 
-        // Patterns
+        // Patterns (only for filters, not data sources - those use SVG detection)
         const patternsRow = document.createElement('div');
-        const patternsLabel = document.createElement('label');
-        patternsLabel.textContent = 'Patterns (comma-separated):';
-        patternsLabel.style.cssText = 'display:block;margin-bottom:4px;font-size:11px;font-weight:600;color:#6B7280;';
-        
-        const patternsInput = document.createElement('textarea');
-        patternsInput.className = 'item-patterns';
-        patternsInput.rows = 1;
-        patternsInput.value = patterns.join(', ');
-        patternsInput.style.cssText = 'width:100%;padding:6px;border:1px solid #D1D5DB;border-radius:4px;font-size:11px;font-family:monospace;box-sizing:border-box;resize:none;';
-        
-        patternsRow.appendChild(patternsLabel);
-        patternsRow.appendChild(patternsInput);
+        if (type === 'filter') {
+            const patternsLabel = document.createElement('label');
+            patternsLabel.textContent = 'Patterns (comma-separated):';
+            patternsLabel.style.cssText = 'display:block;margin-bottom:4px;font-size:11px;font-weight:600;color:#6B7280;';
+            
+            const patternsInput = document.createElement('textarea');
+            patternsInput.className = 'item-patterns';
+            patternsInput.rows = 1;
+            patternsInput.value = patterns.join(', ');
+            patternsInput.style.cssText = 'width:100%;padding:6px;border:1px solid #D1D5DB;border-radius:4px;font-size:11px;font-family:monospace;box-sizing:border-box;resize:none;';
+            
+            patternsRow.appendChild(patternsLabel);
+            patternsRow.appendChild(patternsInput);
+        } else {
+            // For data sources, show info message
+            const info = document.createElement('div');
+            info.textContent = 'Auto-detected via SVG icon (no patterns needed)';
+            info.style.cssText = 'font-size:11px;color:#6B7280;font-style:italic;';
+            patternsRow.appendChild(info);
+        }
 
         wrapper.appendChild(header);
         wrapper.appendChild(patternsRow);
