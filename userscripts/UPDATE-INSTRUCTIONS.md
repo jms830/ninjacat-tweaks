@@ -17,7 +17,7 @@
 4. Confirm deletion
 
 ### Step 2: Reinstall Fresh
-1. Click this link: https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
+1. Click this link: https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js
 2. Tampermonkey will open install dialog
 3. Click **"Install"**
 4. Verify version shows **1.1.0** in the metadata
@@ -32,7 +32,7 @@
 ## Method 2: Manual Update (Copy-Paste)
 
 ### Step 1: Get Latest Code
-1. Go to: https://github.com/jms830/ninjacat-tweaks/blob/master/userscripts/ninjacat-seer-tags.user.js
+1. Go to: https://github.com/jms830/ninjacat-tweaks/blob/main/userscripts/ninjacat-seer-tags.user.js
 2. Click **"Raw"** button
 3. Select all (Ctrl+A) and copy (Ctrl+C)
 
@@ -108,12 +108,12 @@ To force a check:
 
 Verify you're using:
 ```
-https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
+https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js
 ```
 
 Not:
 ```
-https://github.com/jms830/ninjacat-tweaks/blob/master/userscripts/ninjacat-seer-tags.user.js
+https://github.com/jms830/ninjacat-tweaks/blob/main/userscripts/ninjacat-seer-tags.user.js
 ```
 
 The first is the RAW file, second is the GitHub UI.

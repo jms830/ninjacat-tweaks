@@ -18,7 +18,7 @@ A powerful Tampermonkey userscript that adds tagging, filtering, and organizatio
 
 ### Step 2: Install the Script
 
-**Click this link**: [Install NinjaCat Seer Tags](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js)
+**Click this link**: [Install NinjaCat Seer Tags](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js)
 
 Tampermonkey will open an install dialog. Click **Install**.
 
@@ -186,11 +186,11 @@ All filters are fully customizable in Settings!
 Tampermonkey checks for updates automatically. To force an update:
 
 1. Delete the current script from Tampermonkey
-2. Reinstall from the [install link](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js)
+2. Reinstall from the [install link](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js)
 
 Or add `?v=timestamp` to bypass GitHub's cache:
 ```
-https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js?v=20241126
+https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js?v=20241126
 ```
 
 ---

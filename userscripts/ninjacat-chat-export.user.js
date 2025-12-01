@@ -9,8 +9,8 @@
 // @grant        none
 // @run-at       document-end
 // @homepage     https://github.com/jms830/ninjacat-tweaks
-// @updateURL    https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-chat-export.meta.js
-// @downloadURL  https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-chat-export.user.js
+// @updateURL    https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-chat-export.meta.js
+// @downloadURL  https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-chat-export.user.js
 // ==/UserScript==
 
 (function() {

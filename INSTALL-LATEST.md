@@ -15,7 +15,7 @@
 
 **Click this link**:
 ```
-https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js
+https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js
 ```
 
 Tampermonkey will open. Click **Install**.
@@ -40,7 +40,7 @@ If you have an older version installed:
 ### Method 2: Force Update
 Add a cache-busting parameter:
 ```
-https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js?v=1.5.0
+https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js?v=1.5.0
 ```
 
 ---
@@ -86,7 +86,7 @@ https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninj
 
 If the automatic install doesn't work:
 
-1. Go to: https://github.com/jms830/ninjacat-tweaks/blob/master/userscripts/ninjacat-seer-tags.user.js
+1. Go to: https://github.com/jms830/ninjacat-tweaks/blob/main/userscripts/ninjacat-seer-tags.user.js
 2. Click **Raw** button
 3. Select All (Ctrl+A), Copy (Ctrl+C)
 4. Tampermonkey Dashboard → Create new script (+)

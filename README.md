@@ -1,30 +1,20 @@
 # NinjaCat Tweaks
 
-Browser userscripts and tools to enhance the [NinjaCat](https://ninjacat.io) experience for the Seer team.
+Browser userscripts to enhance the [NinjaCat](https://ninjacat.io) experience.
+
+## Available Scripts
+
+| Script | Version | Description |
+|--------|---------|-------------|
+| [Seer Agent Tags & Filter](#1-seer-agent-tags--filter) | v2.3.0 | Tag, filter, and organize agents on the Agents page |
+| [Chat Export](#2-chat-export) | v2.6.0 | Export chat conversations to PDF or Markdown |
 
 ---
 
-## Available Tools
+## Quick Install
 
-### NinjaCat Seer Agent Tags & Filter (v1.5.0)
-
-Automatically tags and filters agents on the NinjaCat agents page, making it easy to find SEO agents, PDM agents, WIP agents, and more.
-
-**Key Features:**
-- Auto-tags agents based on name patterns (SEO, PDM, Analytics, etc.)
-- Filter bar with multi-select and "Showing X of Y" count
-- Manual tagging for agents that don't auto-detect
-- Team sharing via copy/paste code or file export
-- Fully customizable filters and data sources
-- Persistent filter state across page refreshes
-
-**[Install Now](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js)** | [Full Documentation](userscripts/README.md)
-
----
-
-## Quick Start
-
-### 1. Install Tampermonkey
+### Prerequisites
+Install [Tampermonkey](https://www.tampermonkey.net/) for your browser:
 
 | Browser | Install Link |
 |---------|--------------|
@@ -32,48 +22,115 @@ Automatically tags and filters agents on the NinjaCat agents page, making it eas
 | Firefox | [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/) |
 | Safari | [App Store](https://apps.apple.com/us/app/tampermonkey/id1482490089) |
 
-### 2. Install the Script
+### Install Scripts
 
-Click: **[Install NinjaCat Seer Tags](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/master/userscripts/ninjacat-seer-tags.user.js)**
+Click the links below - Tampermonkey will prompt you to install:
 
-### 3. Use It
-
-Go to https://app.ninjacat.io/agency/data/agents - the filter bar appears automatically!
-
----
-
-## Sharing with Your Team
-
-### Share Your Config
-
-1. Click **🔗 Share** in the filter bar
-2. Click **📋 Copy to Clipboard**
-3. Send the code to teammates via Slack/email
-
-### Import a Teammate's Config
-
-1. Click **🔗 Share**
-2. Paste the code in the import box
-3. Click **📥 Import from Code**
-
-This syncs all filters, patterns, and manual tags!
+1. **[Install Seer Agent Tags & Filter](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js)**
+2. **[Install Chat Export](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-chat-export.user.js)**
 
 ---
 
-## Documentation
+## 1. Seer Agent Tags & Filter
 
-| Document | Description |
-|----------|-------------|
-| [userscripts/README.md](userscripts/README.md) | Full feature documentation |
-| [INSTALL-LATEST.md](INSTALL-LATEST.md) | Installation & update guide |
-| [userscripts/FIXES.md](userscripts/FIXES.md) | Detailed changelog |
-| [userscripts/TROUBLESHOOTING.md](userscripts/TROUBLESHOOTING.md) | Common issues & solutions |
+**Works on**: `https://app.ninjacat.io/agency/data/agents*`
+
+Automatically tags and filters agents on the NinjaCat Agents page.
+
+### Features
+- **Auto-tagging** - Tags agents based on name patterns (SEO, PDM, ANA, CE, OPS, WIP, etc.)
+- **Filter bar** - Filter by tag, data source, or show untagged agents
+- **Manual tagging** - Click the tag button to manually assign tags
+- **My Agents** - Quick filter to show only your agents
+- **Collapsible sections** - Collapse Favorites and All Agents sections
+- **Team sharing** - Export/import configurations via share code
+- **Fully customizable** - Add your own tags, patterns, colors, and icons
+
+### Usage
+1. Navigate to the NinjaCat Agents page
+2. The filter bar appears automatically above the agent list
+3. Click tags to filter, use Settings to customize
+
+### Screenshots
+The filter bar appears above your agents list with tag filters, data source filters, and a settings button.
 
 ---
 
-## Feature Requests
+## 2. Chat Export
 
-Have an idea? Check [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) or open a GitHub issue.
+**Works on**: `https://app.ninjacat.io/agency/data/agents/*/chat/*`
+
+Export NinjaCat agent chat conversations to PDF or Markdown.
+
+### Features
+- **Export to PDF** - Clean, print-friendly output without sidebars
+- **Export to Markdown** - Copy conversation as formatted markdown
+- **Expand/Collapse All** - Quickly expand or collapse all task details
+- **Print optimization** - Hides UI clutter, adds header with agent name and date
+
+### Usage
+1. Open any agent chat conversation
+2. Click the **Export** button in the top-right
+3. Choose **PDF** (opens print dialog) or **Markdown** (copies to clipboard)
+
+---
+
+## Updating Scripts
+
+Tampermonkey checks for updates automatically. To force an update:
+
+1. Open Tampermonkey dashboard
+2. Go to the **Utilities** tab
+3. Click **Check for userscript updates**
+
+Or reinstall from the links above.
+
+---
+
+## Configuration & Data
+
+All data is stored locally in your browser's localStorage:
+
+| Key | Description |
+|-----|-------------|
+| `ninjacat-seer-tags-config` | Tag definitions and patterns |
+| `ninjacat-seer-data-sources` | Data source definitions |
+| `ninjacat-seer-agent-tags` | Manual tag assignments |
+| `ninjacat-seer-filter-state` | Active filter state |
+
+To reset: Settings > Reset All
+
+---
+
+## Sharing Configurations
+
+### Export your config
+1. Click **Share** in the filter bar
+2. Click **Copy to Clipboard**
+3. Send the code to teammates
+
+### Import a config
+1. Click **Share**
+2. Paste the code
+3. Click **Import from Code**
+
+---
+
+## Troubleshooting
+
+### Script doesn't load
+- Verify Tampermonkey is enabled
+- Check the script is enabled in Tampermonkey dashboard
+- Hard refresh: `Ctrl+Shift+R`
+
+### Filter bar doesn't appear
+- Wait 2-3 seconds for page to fully load
+- Check console (`F12`) for errors
+- Look for `[NinjaCat Seer Tags] Script loaded` message
+
+### Need help?
+- [Open an issue](https://github.com/jms830/ninjacat-tweaks/issues)
+- Check [TROUBLESHOOTING.md](userscripts/TROUBLESHOOTING.md)
 
 ---
 
@@ -81,17 +138,17 @@ Have an idea? Check [FEATURE_REQUESTS.md](FEATURE_REQUESTS.md) or open a GitHub 
 
 ```
 ninjacat-tweaks/
-├── userscripts/           # Tampermonkey scripts
-│   ├── ninjacat-seer-tags.user.js   # Main script
-│   ├── ninjacat-seer-tags.meta.js   # Update metadata
-│   ├── README.md          # Full documentation
-│   ├── FIXES.md           # Changelog
-│   └── TROUBLESHOOTING.md # Help guide
-├── specs/                 # Feature specifications
-├── tests/                 # Screenshots & test assets
-├── INSTALL-LATEST.md      # Quick install guide
-├── FEATURE_REQUESTS.md    # Backlog
-└── README.md              # This file
+├── userscripts/
+│   ├── ninjacat-seer-tags.user.js    # Agent tagging script
+│   ├── ninjacat-seer-tags.meta.js    # Update metadata
+│   ├── ninjacat-chat-export.user.js  # Chat export script
+│   ├── ninjacat-chat-export.meta.js  # Update metadata
+│   ├── README.md                     # Detailed documentation
+│   ├── FIXES.md                      # Changelog
+│   └── TROUBLESHOOTING.md            # Help guide
+├── specs/                            # Feature specifications
+├── FEATURE_REQUESTS.md               # Feature backlog
+└── README.md                         # This file
 ```
 
 ---
@@ -100,12 +157,11 @@ ninjacat-tweaks/
 
 1. Fork the repo
 2. Create a feature branch
-3. Make your changes
-4. Test on the NinjaCat agents page
-5. Submit a PR
+3. Make changes and test on NinjaCat
+4. Submit a PR
 
 ---
 
 ## License
 
-MIT License - use freely!
+MIT License - free to use and modify!
