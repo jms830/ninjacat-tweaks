@@ -1,5 +1,34 @@
 # Fixes Applied to Original Script
 
+## Version 2.5.1 - SVG className Fix
+
+### Bug Fix
+
+**Problem:** Script failed to load at runtime despite passing syntax checks.
+
+**Root Cause:** SVG elements have `className` as an `SVGAnimatedString` object (not a string). The code was:
+```javascript
+const classList = svg.className?.baseVal || svg.className || '';
+```
+
+When `baseVal` was empty (`''`), the `||` fell back to `svg.className` (the object), then `.includes()` was called on an object, causing a runtime error.
+
+**Solution:**
+1. Fixed `classList` extraction to properly handle SVGAnimatedString:
+   ```javascript
+   const classList = (typeof svg.className === 'string' ? svg.className : svg.className?.baseVal) || '';
+   ```
+2. Added try-catch wrappers around SVG processing loops to prevent one bad SVG from crashing the entire detection
+3. Added error handling in `detectSourceFromSvg()` calls
+
+### Technical Changes
+- Fixed line 394: Proper SVGAnimatedString handling
+- Added try-catch in `dataSourceContainers.forEach()` loop
+- Added try-catch in fallback `card.querySelectorAll('svg')` loop
+- Added try-catch around `detectSourceFromSvg()` call
+
+---
+
 ## Version 2.5.0 - Robust Data Source Detection
 
 ### Major Improvements

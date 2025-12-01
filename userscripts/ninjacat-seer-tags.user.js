@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.5.0
+// @version      2.5.1
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.5.0 - Improved data source detection');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.5.1 - Fixed SVG className handling');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -388,17 +388,23 @@
         
         dataSourceContainers.forEach(container => {
             container.querySelectorAll('svg').forEach(svg => {
-                // Filter to small icons (data source icons are typically small)
-                const width = svg.getAttribute('width') || svg.style.width || '';
-                const height = svg.getAttribute('height') || svg.style.height || '';
-                const classList = svg.className?.baseVal || svg.className || '';
-                
-                // Include if it's a small icon or has typical data source icon classes
-                if (width.includes('18') || width.includes('20') || width.includes('24') ||
-                    height.includes('18') || height.includes('20') || height.includes('24') ||
-                    classList.includes('w-[18px]') || classList.includes('w-[20px]') ||
-                    classList.includes('h-[18px]') || classList.includes('h-[20px]')) {
-                    candidateSvgs.add(svg);
+                try {
+                    // Filter to small icons (data source icons are typically small)
+                    const width = svg.getAttribute('width') || svg.style.width || '';
+                    const height = svg.getAttribute('height') || svg.style.height || '';
+                    // SVG className is SVGAnimatedString, need baseVal for the actual string
+                    const classList = (typeof svg.className === 'string' ? svg.className : svg.className?.baseVal) || '';
+                    
+                    // Include if it's a small icon or has typical data source icon classes
+                    if (width.includes('18') || width.includes('20') || width.includes('24') ||
+                        height.includes('18') || height.includes('20') || height.includes('24') ||
+                        classList.includes('w-[18px]') || classList.includes('w-[20px]') ||
+                        classList.includes('h-[18px]') || classList.includes('h-[20px]')) {
+                        candidateSvgs.add(svg);
+                    }
+                } catch (e) {
+                    // Skip SVGs that cause errors (e.g., detached elements)
+                    debugLog('Error processing SVG in container:', e.message);
                 }
             });
         });
@@ -406,21 +412,30 @@
         // If no candidates found in containers, fall back to all SVGs but filter by size
         if (candidateSvgs.size === 0) {
             card.querySelectorAll('svg').forEach(svg => {
-                const rect = svg.getBoundingClientRect();
-                // Data source icons are typically 18-24px
-                if (rect.width >= 14 && rect.width <= 30 && rect.height >= 14 && rect.height <= 30) {
-                    candidateSvgs.add(svg);
+                try {
+                    const rect = svg.getBoundingClientRect();
+                    // Data source icons are typically 18-24px
+                    if (rect.width >= 14 && rect.width <= 30 && rect.height >= 14 && rect.height <= 30) {
+                        candidateSvgs.add(svg);
+                    }
+                } catch (e) {
+                    // Skip SVGs that cause errors
+                    debugLog('Error getting SVG bounds:', e.message);
                 }
             });
         }
         
         candidateSvgs.forEach(svg => {
-            const source = detectSourceFromSvg(svg);
-            if (source) {
-                debugLog(`Detected source: ${source} from SVG`, svg.outerHTML.substring(0, 100));
-                if (dataSources[source] && dataSources[source].enabled) {
-                    found.add(dataSources[source].name);
+            try {
+                const source = detectSourceFromSvg(svg);
+                if (source) {
+                    debugLog(`Detected source: ${source} from SVG`, svg.outerHTML.substring(0, 100));
+                    if (dataSources[source] && dataSources[source].enabled) {
+                        found.add(dataSources[source].name);
+                    }
                 }
+            } catch (e) {
+                debugLog('Error detecting source from SVG:', e.message);
             }
         });
 
