@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.2.1
 // @description  Multi-file drag-drop, message queue, always-unlocked input, and error recovery for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.2.0');
+    console.log('[NinjaCat Chat UX] Script loaded v1.2.1');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -666,6 +666,7 @@
         const textarea = getTextarea();
         if (!textarea) return;
 
+        // Unlock the textarea itself
         if (textarea.disabled) {
             textarea.disabled = false;
             debugLog('Unlocked textarea (was disabled)');
@@ -680,6 +681,32 @@
             textarea.classList.contains('cursor-not-allowed')) {
             textarea.classList.remove('disabled', 'cursor-not-allowed');
             debugLog('Removed disabling classes from textarea');
+        }
+        
+        // IMPORTANT: Also unlock parent containers that may have "disabled" class
+        // NinjaCat adds "disabled" class to the parent .flex.items-center container
+        let parent = textarea.parentElement;
+        while (parent) {
+            if (parent.classList.contains('disabled')) {
+                parent.classList.remove('disabled');
+                debugLog('Removed disabled class from parent:', parent.className);
+            }
+            // Stop at the main input container
+            if (parent.classList.contains('rounded-3xl')) break;
+            parent = parent.parentElement;
+        }
+        
+        // Also ensure the send button is enabled
+        const sendBtn = findSendButton();
+        if (sendBtn) {
+            // Remove disabled state and ensure it's clickable
+            sendBtn.disabled = false;
+            sendBtn.style.pointerEvents = 'auto';
+            
+            // If button is grey, we might want to visually indicate it's ready
+            // But we can't change bg-grey-5 to bg-blue-5 as that might break Vue's state
+            // Instead, just make sure clicks work
+            debugLog('Ensured send button is clickable');
         }
     }
 
