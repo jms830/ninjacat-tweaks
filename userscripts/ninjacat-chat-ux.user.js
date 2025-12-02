@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
+// @version      1.2.2
 // @description  Multi-file drag-drop, message queue, always-unlocked input, and error recovery for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.2.1');
+    console.log('[NinjaCat Chat UX] Script loaded v1.2.2');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -702,11 +702,19 @@
             // Remove disabled state and ensure it's clickable
             sendBtn.disabled = false;
             sendBtn.style.pointerEvents = 'auto';
-            
-            // If button is grey, we might want to visually indicate it's ready
-            // But we can't change bg-grey-5 to bg-blue-5 as that might break Vue's state
-            // Instead, just make sure clicks work
             debugLog('Ensured send button is clickable');
+        }
+        
+        // IMPORTANT: Reset our internal processing flag when we unlock input.
+        // This prevents the Enter interceptor from blocking sends after error/cancel.
+        if (isAgentProcessing) {
+            // Double-check there's no real processing signal before resetting
+            const hasSpinner = document.querySelector('.animate-spin, [class*="spinner"], [class*="loading"]');
+            const hasStopBtn = document.querySelector('button[class*="stop"], button[class*="cancel"], [data-tip*="Stop"], [data-tip*="Cancel"]');
+            if (!hasSpinner && !hasStopBtn) {
+                isAgentProcessing = false;
+                debugLog('Reset isAgentProcessing to false (no hard signals present)');
+            }
         }
     }
 
@@ -739,21 +747,9 @@
             }
         }
 
-        // Check if send button is in a disabled/grey state (not blue)
-        const sendBtn = findSendButton();
-        if (sendBtn) {
-            const hasGreyBg = sendBtn.classList.contains('bg-grey-5') || 
-                             sendBtn.className.includes('bg-grey') ||
-                             sendBtn.className.includes('grey');
-            const hasBlueBg = sendBtn.classList.contains('bg-blue-5') || 
-                             sendBtn.classList.contains('bg-blue-100') ||
-                             sendBtn.className.includes('bg-blue');
-            // If button is grey (not blue), agent might be processing
-            if (hasGreyBg && !hasBlueBg) {
-                debugLog('Agent processing detected: send button is grey');
-                return true;
-            }
-        }
+        // NOTE: We intentionally do NOT use send button color (grey vs blue) as a signal.
+        // The button can stay grey after errors/cancels even though the agent is idle.
+        // Relying on color caused false positives that blocked user input.
 
         return false;
     }
