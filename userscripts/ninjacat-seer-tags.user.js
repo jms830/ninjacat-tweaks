@@ -1,11 +1,15 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.5.2
+// @version      2.5.3
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
-// @match        https://app.ninjacat.io/agency/data/agents*
-// @match        https://app.mymarketingreports.com/agency/data/agents*
+// @match        https://app.ninjacat.io/agency/data/agents
+// @match        https://app.ninjacat.io/agency/data/agents/
+// @match        https://app.ninjacat.io/agency/data/agents?*
+// @match        https://app.mymarketingreports.com/agency/data/agents
+// @match        https://app.mymarketingreports.com/agency/data/agents/
+// @match        https://app.mymarketingreports.com/agency/data/agents?*
 // @grant        none
 // @run-at       document-end
 // @homepage     https://github.com/jms830/ninjacat-tweaks
@@ -17,15 +21,15 @@
     'use strict';
 
     // Only run on the agents LIST page, not on individual agent/chat pages
-    // Chat URLs look like: /agents/UUID/chat/UUID
-    // List URL looks like: /agents or /agents?query=...
+    // The @match patterns now only match the list page, but keep this as a safety check
     const path = window.location.pathname;
-    if (path.includes('/chat/') || /\/agents\/[a-f0-9-]{36}/i.test(path)) {
-        console.log('[NinjaCat Seer Tags] Skipping - this is a chat/agent detail page');
+    const isAgentsList = path === '/agency/data/agents' || path === '/agency/data/agents/';
+    if (!isAgentsList) {
+        console.log('[NinjaCat Seer Tags] Skipping - not the agents list page');
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.5.2 - Observer guard + SVG fix');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.5.3 - Strict URL matching');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
