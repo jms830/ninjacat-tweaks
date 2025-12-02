@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.1.0
 // @description  Multi-file drag-drop, message queue, always-unlocked input, and error recovery for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -16,13 +16,13 @@
 (function() {
     'use strict';
 
-    // Only run on chat pages (URLs containing /chat/ or agent detail pages)
+    // Run on chat pages AND agent builder pages
     const path = window.location.pathname;
     if (!path.includes('/chat/') && !path.includes('/agents/')) {
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.0.1');
+    console.log('[NinjaCat Chat UX] Script loaded v1.1.0');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -37,8 +37,9 @@
     let queuePaused = false;
     let dropZoneVisible = false;
     let observer = null;
-    let errorDetectionEnabled = false; // Disabled by default - too many false positives
-    let hasShownInitError = false; // Prevent repeated error toasts on init
+    let errorDetectionEnabled = false;
+    let hasShownInitError = false;
+    let activeDropTarget = null; // Which file input area we're targeting
 
     // ---- Debug Logging ----
     function debugLog(...args) {
@@ -55,7 +56,18 @@
         inputWrapper: '.min-w-\\[200px\\].max-w-\\[840px\\]',
         attachIcon: '.flex.items-center > svg:first-of-type',
         sendButton: '.rounded-full.bg-blue-5',
-        messagesContainer: '.conversationMessagesContainer, [class*="conversation"], [class*="messages"]'
+        messagesContainer: '.conversationMessagesContainer, [class*="conversation"], [class*="messages"]',
+        // Agent Builder specific
+        knowledgeTab: '[data-automation-id="Knowledge"][aria-selected="true"]',
+        knowledgeFilesSection: 'h3:contains("Files"), h3',
+        addFileButton: '.text-blue-100:contains("Add File"), .cursor-pointer:has(.text-blue-100)'
+    };
+
+    // File upload contexts - helps determine which input to use
+    const FILE_CONTEXTS = {
+        CHAT: 'chat',           // Main chat or test chat
+        BUILDER: 'builder',     // Builder chat (left pane)  
+        KNOWLEDGE: 'knowledge'  // Knowledge tab file uploads
     };
 
     // ---- Utility Functions ----
@@ -73,6 +85,109 @@
 
     function getFileInput() {
         return $(SELECTORS.fileInput);
+    }
+
+    /**
+     * Find all file inputs on the page and return them with context
+     */
+    function getAllFileInputs() {
+        const inputs = [];
+        const fileInputs = $$('input[type="file"].hidden');
+        
+        fileInputs.forEach((input, index) => {
+            const context = determineFileInputContext(input);
+            inputs.push({ element: input, context, index });
+            debugLog(`File input ${index}: context=${context}`);
+        });
+        
+        return inputs;
+    }
+
+    /**
+     * Determine which context a file input belongs to
+     */
+    function determineFileInputContext(input) {
+        // Check if in Knowledge tab section (look for "Files" header nearby)
+        const parent = input.parentElement;
+        if (parent) {
+            // Knowledge section has h3 "Files" header
+            const h3 = parent.querySelector('h3');
+            if (h3 && h3.textContent.includes('Files')) {
+                return FILE_CONTEXTS.KNOWLEDGE;
+            }
+            
+            // Knowledge section also has "Add File" button
+            const addFileText = parent.querySelector('.text-blue-100');
+            if (addFileText && addFileText.textContent.includes('Add File')) {
+                return FILE_CONTEXTS.KNOWLEDGE;
+            }
+        }
+        
+        // Check if associated with a chat textarea
+        const container = input.closest('.border.rounded-3xl');
+        if (container) {
+            const textarea = container.querySelector('#autoselect-experience');
+            if (textarea) {
+                // Check if this is the builder chat (has "Test" button nearby)
+                const testBtn = container.querySelector('[data-tip*="test"], .tooltip');
+                if (testBtn) {
+                    return FILE_CONTEXTS.BUILDER;
+                }
+                return FILE_CONTEXTS.CHAT;
+            }
+        }
+        
+        // Default to chat
+        return FILE_CONTEXTS.CHAT;
+    }
+
+    /**
+     * Find the best file input to use based on drop location
+     */
+    function findFileInputNearPoint(x, y) {
+        const allInputs = getAllFileInputs();
+        if (allInputs.length === 0) return null;
+        if (allInputs.length === 1) return allInputs[0].element;
+        
+        // Check which tab is active (Knowledge vs Create/General)
+        const knowledgeTab = $('[data-automation-id="Knowledge"][aria-selected="true"]');
+        if (knowledgeTab) {
+            // Prefer knowledge file input
+            const knowledgeInput = allInputs.find(i => i.context === FILE_CONTEXTS.KNOWLEDGE);
+            if (knowledgeInput) {
+                debugLog('Knowledge tab active - using knowledge file input');
+                return knowledgeInput.element;
+            }
+        }
+        
+        // Try to find the closest chat input container to the drop point
+        const chatContainers = $$('.border.rounded-3xl');
+        let closestContainer = null;
+        let closestDistance = Infinity;
+        
+        chatContainers.forEach(container => {
+            const rect = container.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+            
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestContainer = container;
+            }
+        });
+        
+        if (closestContainer) {
+            const input = closestContainer.querySelector('input[type="file"].hidden');
+            if (input) {
+                debugLog('Found closest file input to drop point');
+                return input;
+            }
+        }
+        
+        // Fallback to first available
+        debugLog('Using first available file input');
+        return allInputs[0].element;
     }
 
     function getInputContainer() {
@@ -157,6 +272,12 @@
             .nc-drop-zone-hint {
                 font-size: 14px;
                 color: #6B7280;
+            }
+            
+            .nc-drop-zone-context {
+                margin-top: 12px;
+                font-size: 13px;
+                font-weight: 500;
             }
             
             /* Message Queue UI */
@@ -334,8 +455,9 @@
         dropZone.innerHTML = `
             <div class="nc-drop-zone-content">
                 <div class="nc-drop-zone-icon">📎</div>
-                <div class="nc-drop-zone-text">Drop files here</div>
+                <div class="nc-drop-zone-text" id="nc-drop-zone-text">Drop files here</div>
                 <div class="nc-drop-zone-hint">Supports: ${CONFIG.ACCEPTED_FILE_TYPES.join(', ')}</div>
+                <div class="nc-drop-zone-context" id="nc-drop-zone-context"></div>
             </div>
         `;
         document.body.appendChild(dropZone);
@@ -345,6 +467,7 @@
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.stopPropagation();
+            updateDropZoneContext(e.clientX, e.clientY);
         }, true);
         dropZone.addEventListener('dragleave', (e) => {
             if (e.relatedTarget === null || !dropZone.contains(e.relatedTarget)) {
@@ -353,6 +476,31 @@
         });
 
         return dropZone;
+    }
+
+    function updateDropZoneContext(x, y) {
+        const contextEl = document.getElementById('nc-drop-zone-context');
+        if (!contextEl) return;
+        
+        // Detect what we're hovering over
+        const knowledgeTab = $('[data-automation-id="Knowledge"][aria-selected="true"]');
+        if (knowledgeTab) {
+            contextEl.textContent = 'Will add to Knowledge Files';
+            contextEl.style.color = '#059669';
+            return;
+        }
+        
+        // Check if we can identify chat areas
+        const allInputs = getAllFileInputs();
+        if (allInputs.length > 1) {
+            contextEl.textContent = 'Drop near the chat you want to attach to';
+            contextEl.style.color = '#6B7280';
+        } else if (allInputs.length === 1) {
+            contextEl.textContent = '';
+        } else {
+            contextEl.textContent = 'No file upload found on this page';
+            contextEl.style.color = '#DC2626';
+        }
     }
 
     function showDropZone() {
@@ -374,10 +522,14 @@
     function handleDrop(e) {
         e.preventDefault();
         e.stopPropagation();
+        
+        const dropX = e.clientX;
+        const dropY = e.clientY;
+        
         hideDropZone();
 
         const files = Array.from(e.dataTransfer?.files || []);
-        debugLog('Drop event - files:', files.length, files.map(f => f.name));
+        debugLog('Drop event - files:', files.length, files.map(f => f.name), `at (${dropX}, ${dropY})`);
         
         if (files.length === 0) {
             debugLog('No files in drop');
@@ -402,13 +554,18 @@
             return;
         }
 
-        // Attach files to the hidden file input
-        attachFilesToInput(validFiles);
+        // Find the best file input based on drop location
+        const fileInput = findFileInputNearPoint(dropX, dropY);
+        if (fileInput) {
+            attachFilesToInput(validFiles, fileInput);
+        } else {
+            showToast('Could not find file input', 'error');
+        }
     }
 
-    function attachFilesToInput(files) {
-        const fileInput = getFileInput();
-        debugLog('Looking for file input, found:', fileInput);
+    function attachFilesToInput(files, targetInput = null) {
+        const fileInput = targetInput || getFileInput();
+        debugLog('Attaching files to input:', fileInput);
         
         if (!fileInput) {
             console.error('[NinjaCat Chat UX] File input not found');
@@ -428,20 +585,31 @@
             fileInput.files = dataTransfer.files;
             debugLog('Set files on input, count:', fileInput.files.length);
             
-            // Dispatch multiple events to ensure Vue/React picks it up
-            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+            // Dispatch change event - this is what triggers Vue's file handling
+            const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+            fileInput.dispatchEvent(changeEvent);
+            debugLog('Dispatched change event');
+            
+            // Also dispatch input event for good measure
             fileInput.dispatchEvent(new Event('input', { bubbles: true }));
             
-            // Also try clicking the attach button to trigger the file handling
-            // This simulates the user interaction flow
-            setTimeout(() => {
-                // Check if files were processed
-                if (fileInput.files.length > 0) {
-                    showToast(`${files.length} file(s) attached`, 'success');
-                    debugLog('Files successfully attached');
-                } else {
-                    debugLog('Files may not have been processed');
+            // For Knowledge tab uploads, we may need to programmatically click
+            // the "Add File" button or trigger a specific handler
+            const context = determineFileInputContext(fileInput);
+            debugLog('File input context:', context);
+            
+            if (context === FILE_CONTEXTS.KNOWLEDGE) {
+                // Try clicking the Add File button to trigger any additional handlers
+                const addFileBtn = fileInput.parentElement?.querySelector('.cursor-pointer');
+                if (addFileBtn) {
+                    debugLog('Found Add File button, may need manual trigger');
                 }
+            }
+            
+            // Show success after a brief delay to check
+            setTimeout(() => {
+                showToast(`${files.length} file(s) attached`, 'success');
+                debugLog('Files attachment complete');
             }, 100);
             
         } catch (err) {
