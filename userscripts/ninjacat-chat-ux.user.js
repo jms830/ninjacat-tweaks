@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Multi-file drag-drop, message queue, always-unlocked input, and error recovery for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.3.0');
+    console.log('[NinjaCat Chat UX] Script loaded v1.3.1');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -40,7 +40,6 @@
     let errorDetectionEnabled = false;
     let hasShownInitError = false;
     let activeDropTarget = null; // Which file input area we're targeting
-    let capturedWebSocket = null; // Reference to the live WebSocket connection
 
     // ---- Debug Logging ----
     function debugLog(...args) {
@@ -49,96 +48,90 @@
         }
     }
 
-    // ---- WebSocket Capture ----
-    // Intercept WebSocket to capture the live connection for error recovery
-    function setupWebSocketCapture() {
-        // Try to find existing WebSocket first (may already be connected)
-        findExistingWebSocket();
-        
-        if (window._ncWebSocketCaptured) return;
-        window._ncWebSocketCaptured = true;
-        
-        const OrigWebSocket = window.WebSocket;
-        window.WebSocket = function(url, protocols) {
-            const ws = protocols ? new OrigWebSocket(url, protocols) : new OrigWebSocket(url);
-            
-            // Capture socket.io connections (NinjaCat uses socket.io)
-            if (url && url.includes('socket.io')) {
-                debugLog('Captured socket.io WebSocket connection');
-                capturedWebSocket = ws;
-                
-                // Re-capture if connection is re-established
-                ws.addEventListener('open', () => {
-                    debugLog('WebSocket opened/reopened');
-                    capturedWebSocket = ws;
-                });
-                
-                ws.addEventListener('close', () => {
-                    debugLog('WebSocket closed');
-                    if (capturedWebSocket === ws) {
-                        capturedWebSocket = null;
-                    }
-                });
-            }
-            
-            return ws;
-        };
-        window.WebSocket.prototype = OrigWebSocket.prototype;
-        window.WebSocket.CONNECTING = OrigWebSocket.CONNECTING;
-        window.WebSocket.OPEN = OrigWebSocket.OPEN;
-        window.WebSocket.CLOSING = OrigWebSocket.CLOSING;
-        window.WebSocket.CLOSED = OrigWebSocket.CLOSED;
-        
-        debugLog('WebSocket capture setup complete');
-    }
-
+    // ---- Error Recovery Functions ----
+    
     /**
-     * Try to find an existing WebSocket connection (socket.io stores it)
+     * Clear stale streaming state from Pinia store
+     * This allows the normal send to work again after an error/cancel
      */
-    function findExistingWebSocket() {
+    function clearStaleStreamingState() {
         try {
-            // Socket.io typically stores the connection on window.io or in Vue app
-            // Try various approaches to find it
-            
-            // Approach 1: Check if socket.io manager exists
-            if (window.io?.sockets) {
-                for (const socket of Object.values(window.io.sockets)) {
-                    if (socket.io?.engine?.transport?.ws) {
-                        capturedWebSocket = socket.io.engine.transport.ws;
-                        debugLog('Found existing WebSocket via window.io');
-                        return true;
-                    }
-                }
-            }
-            
-            // Approach 2: Look in Vue app for socket
             const app = document.querySelector('#assistants-ui')?.__vue_app__;
-            if (app) {
-                const pinia = app._context.provides?.pinia;
-                if (pinia?._s) {
-                    // Check live-chat store for socket reference
-                    const liveChatStore = pinia._s.get('live-chat');
-                    if (liveChatStore?.socket?.io?.engine?.transport?.ws) {
-                        capturedWebSocket = liveChatStore.socket.io.engine.transport.ws;
-                        debugLog('Found existing WebSocket via live-chat store');
-                        return true;
-                    }
+            if (!app) {
+                debugLog('Vue app not found for state clear');
+                return false;
+            }
+            
+            const pinia = app._context.provides?.pinia || app.config.globalProperties?.$pinia;
+            if (!pinia) {
+                debugLog('Pinia not found for state clear');
+                return false;
+            }
+            
+            const conversationId = window.location.pathname.split('/').pop();
+            let cleared = false;
+            
+            // Clear streamingMessages in live-chat store
+            const liveChatStore = pinia._s?.get('live-chat');
+            if (liveChatStore?.streamingMessages?.[conversationId]) {
+                debugLog('Clearing stale streamingMessages entry');
+                delete liveChatStore.streamingMessages[conversationId];
+                cleared = true;
+            }
+            
+            // Reset conversation state if in ERROR
+            const conversationStore = pinia._s?.get('conversation');
+            if (conversationStore) {
+                const conv = conversationStore.conversations?.[conversationId];
+                if (conv?.state === 'ERROR') {
+                    debugLog('Resetting conversation state from ERROR to IDLE');
+                    conv.state = 'IDLE';
+                    cleared = true;
                 }
             }
             
-            // Approach 3: Check for socket on window (some apps expose it)
-            if (window.socket?.io?.engine?.transport?.ws) {
-                capturedWebSocket = window.socket.io.engine.transport.ws;
-                debugLog('Found existing WebSocket via window.socket');
-                return true;
+            if (cleared) {
+                debugLog('Stale state cleared successfully');
             }
-            
-            debugLog('No existing WebSocket found - will capture on next connection');
-            return false;
+            return cleared;
         } catch (err) {
-            debugLog('Error finding existing WebSocket:', err);
+            debugLog('Error clearing stale state:', err);
             return false;
         }
+    }
+    
+    /**
+     * Click the native "Resend" button if visible
+     */
+    function clickResendButton() {
+        const buttons = document.querySelectorAll('button');
+        for (const btn of buttons) {
+            const text = btn.textContent.toLowerCase().trim();
+            if (text === 'resend' || text.includes('resend')) {
+                debugLog('Found and clicking Resend button');
+                btn.click();
+                return true;
+            }
+        }
+        debugLog('Resend button not found');
+        return false;
+    }
+    
+    /**
+     * Click the native "Edit last message" button if visible
+     */
+    function clickEditLastMessageButton() {
+        const buttons = document.querySelectorAll('button');
+        for (const btn of buttons) {
+            const text = btn.textContent.toLowerCase().trim();
+            if (text.includes('edit last message') || text.includes('edit message')) {
+                debugLog('Found and clicking Edit last message button');
+                btn.click();
+                return true;
+            }
+        }
+        debugLog('Edit last message button not found');
+        return false;
     }
 
     // ---- Error Recovery via WebSocket ----
@@ -256,58 +249,38 @@
     }
 
     /**
-     * Generate a random request ID in the format NinjaCat uses
+     * Attempt error recovery using multiple strategies:
+     * 1. Clear stale Pinia state so normal send works
+     * 2. Click native Resend button if visible
+     * 3. Click native Edit last message button if visible
+     * Returns true if any recovery method succeeded
      */
-    function generateRequestId() {
-        return Math.random().toString(16).substring(2, 18);
+    function attemptErrorRecovery() {
+        debugLog('Attempting error recovery...');
+        
+        // Strategy 1: Clear stale state first - this often fixes the issue
+        const stateCleared = clearStaleStreamingState();
+        if (stateCleared) {
+            debugLog('Stale state cleared - normal send should work now');
+            return 'state_cleared';
+        }
+        
+        // Strategy 2: Click the Resend button if visible
+        if (clickResendButton()) {
+            return 'resend_clicked';
+        }
+        
+        // Strategy 3: Click Edit last message button
+        if (clickEditLastMessageButton()) {
+            return 'edit_clicked';
+        }
+        
+        debugLog('No error recovery method succeeded');
+        return false;
     }
 
     /**
-     * Send a message via WebSocket, bypassing the broken Pinia store
-     * This uses the same format as the "Edit last message" feature
-     */
-    function sendViaWebSocket(messageText) {
-        if (!capturedWebSocket || capturedWebSocket.readyState !== WebSocket.OPEN) {
-            debugLog('WebSocket not available or not open');
-            return false;
-        }
-        
-        const context = getConversationContext();
-        if (!context || !context.conversationId || !context.assistantId) {
-            debugLog('Missing conversation context for WebSocket send');
-            return false;
-        }
-        
-        // If we don't have a last user message ID, we can't use resend-user-message
-        if (!context.lastUserMessageId) {
-            debugLog('No last user message ID - cannot use resend-user-message');
-            return false;
-        }
-        
-        const payload = {
-            request_id: generateRequestId(),
-            conversation_id: context.conversationId,
-            assistant_id: context.assistantId,
-            message_id: context.lastUserMessageId,
-            message: messageText,
-            inputs: [{ type: 'FILE_UPLOAD', files: [] }]
-        };
-        
-        const message = `42["resend-user-message",${JSON.stringify(payload)}]`;
-        
-        debugLog('Sending via WebSocket:', message);
-        
-        try {
-            capturedWebSocket.send(message);
-            return true;
-        } catch (err) {
-            console.error('[NinjaCat Chat UX] WebSocket send failed:', err);
-            return false;
-        }
-    }
-
-    /**
-     * Attempt error recovery - send the current textarea content via WebSocket
+     * Attempt to send current message after clearing error state
      */
     function attemptErrorRecoverySend() {
         const textarea = getTextarea();
@@ -321,13 +294,38 @@
         
         debugLog('Attempting error recovery send for:', text.substring(0, 50));
         
-        if (sendViaWebSocket(text)) {
-            // Clear the textarea on success
+        // First try to clear the stale state
+        const stateCleared = clearStaleStreamingState();
+        
+        if (stateCleared) {
+            // State was cleared - try the normal send path
+            debugLog('State cleared, attempting normal send');
+            
+            // Re-trigger input event to wake up Vue
             const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-            nativeSetter.call(textarea, '');
+            nativeSetter.call(textarea, text);
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
             
-            showToast('Message sent (error recovery)', 'success');
+            // Small delay then click send
+            setTimeout(() => {
+                const sendBtn = findSendButton();
+                if (sendBtn) {
+                    debugLog('Clicking send button after state clear');
+                    const clickEvent = new MouseEvent('click', {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    });
+                    sendBtn.dispatchEvent(clickEvent);
+                }
+            }, 100);
+            
+            return true;
+        }
+        
+        // If state clear didn't work, try clicking native recovery buttons
+        if (clickResendButton()) {
+            showToast('Clicked Resend button', 'success');
             return true;
         }
         
@@ -1324,15 +1322,15 @@
                         
                         // Check if we're in an error state that blocks sends
                         if (isConversationInErrorState()) {
-                            debugLog('Conversation in error state - attempting WebSocket recovery');
+                            debugLog('Conversation in error state - attempting recovery');
                             
-                            // Try to send via WebSocket (bypasses broken Pinia store)
+                            // Try to clear stale state and re-send
                             if (attemptErrorRecoverySend()) {
-                                debugLog('WebSocket error recovery successful');
+                                debugLog('Error recovery initiated');
                                 return;
                             }
                             
-                            debugLog('WebSocket recovery failed - trying button fallback');
+                            debugLog('Error recovery methods failed - trying button fallback');
                         }
                         
                         // Fallback: Try to wake up Vue by re-setting the value and triggering events
@@ -1393,6 +1391,7 @@
         return result;
     };
     window._ncErrorRecovery = attemptErrorRecoverySend;
+    window._ncClearState = clearStaleStreamingState;
     window._ncIsErrorState = () => {
         const result = isConversationInErrorState();
         console.log('[NinjaCat Chat UX] isConversationInErrorState:', result);
@@ -1403,14 +1402,8 @@
         console.log('[NinjaCat Chat UX] Conversation context:', ctx);
         return ctx;
     };
-    window._ncWebSocket = () => {
-        console.log('[NinjaCat Chat UX] WebSocket:', capturedWebSocket, 
-                    'readyState:', capturedWebSocket?.readyState);
-        return capturedWebSocket;
-    };
-    window._ncSendWS = (text) => {
-        return sendViaWebSocket(text);
-    };
+    window._ncClickResend = clickResendButton;
+    window._ncClickEdit = clickEditLastMessageButton;
 
     // ---- Error Detection (DISABLED by default - too many false positives) ----
     function detectError() {
@@ -1487,9 +1480,6 @@
     // ---- Initialization ----
     function init() {
         console.log('[NinjaCat Chat UX] Initializing...');
-
-        // Setup WebSocket capture FIRST (before any connections are made)
-        setupWebSocketCapture();
         
         injectStyles();
         createDropZone();
