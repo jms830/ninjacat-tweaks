@@ -1,5 +1,24 @@
 # Fixes Applied to Original Script
 
+## Version 2.5.2 - Observer Guard Against Flashing
+
+### Bug Fix
+
+**Problem:** The MutationObserver watched the entire document. Our own filter bar keeps adding/removing chips every time filters apply, so the observer thought the page changed and re-triggered `runAll()` forever. That loop kept removing and re-inserting tag rows (visible flashing) even though the underlying agents hadn’t changed.
+
+**Solution:**
+1. Added `runAllSafely()` which disconnects the observer while tagging/filter UI updates run, then reattaches afterward so our own DOM mutations don’t generate another callback.
+2. Added `shouldIgnoreMutation()` to ignore mutation records that only touch Seer-managed UI (`#seer-tag-bar`, modals, etc.). Real page changes (NinjaCat re-rendering rows) still trigger tagging.
+3. Cleared pending debounce timers inside `refreshPage()` before scheduling a manual rerun so we don’t process duplicate observer triggers.
+
+### Technical Changes
+- New helpers: `normalizeMutationNode`, `isNodeInsideManagedUi`, `shouldIgnoreMutation`, `runAllSafely`
+- Observer uses the helpers to skip Seer-only DOM churn
+- All scheduled runs now go through `runAllSafely()`
+- Version bump to 2.5.2
+
+---
+
 ## Version 2.5.1 - SVG className Fix
 
 ### Bug Fix

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.5.1
+// @version      2.5.2
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents*
@@ -25,7 +25,7 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.5.1 - Fixed SVG className handling');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.5.2 - Observer guard + SVG fix');
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -200,6 +200,10 @@
     let excludedOwners = savedFilterState.excludedOwners || [];
     let timeFilter = savedFilterState.timeFilter || 'all';
     
+    const OBSERVER_CONFIG = { childList: true, subtree: true };
+    let mutationObserver = null;
+    const SEER_MANAGED_UI_SELECTOR = '#seer-tag-bar, #seer-settings-modal, #seer-agent-tag-modal, #seer-share-modal, #seer-suggest-pattern-modal, #seer-exclude-modal, #seer-exclude-users-modal';
+    
     // Track which agents we've already processed to prevent flashing
     // Key: agent name, Value: { element: WeakRef, lastTagged: timestamp }
     const taggedAgentsCache = new Map();
@@ -214,6 +218,35 @@
     }
     // Enable debug mode by running in console: localStorage.setItem('seer-debug', 'true'); location.reload();
 
+    function normalizeMutationNode(node) {
+        if (!node) return null;
+        if (node.nodeType === Node.ELEMENT_NODE) return node;
+        if (node.nodeType === Node.TEXT_NODE) return node.parentElement;
+        if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) return node.firstElementChild || null;
+        return null;
+    }
+
+    function isNodeInsideManagedUi(node) {
+        const element = normalizeMutationNode(node);
+        if (!element) return false;
+        return Boolean(element.closest(SEER_MANAGED_UI_SELECTOR));
+    }
+
+    function shouldIgnoreMutation(record) {
+        if (!record) return false;
+        const addedNodes = Array.from(record.addedNodes || []);
+        const removedNodes = Array.from(record.removedNodes || []);
+        const additionsInside = addedNodes.every(isNodeInsideManagedUi);
+        const removalsInside = removedNodes.every(isNodeInsideManagedUi);
+        if (isNodeInsideManagedUi(record.target) && additionsInside && removalsInside) {
+            return true;
+        }
+        if (!isNodeInsideManagedUi(record.target) && additionsInside && removalsInside && (addedNodes.length + removedNodes.length) > 0) {
+            return true;
+        }
+        return false;
+    }
+ 
     // ---- Global Keyboard Handler ----
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -2893,12 +2926,16 @@
 
     // ---- Refresh & Run ----
     function refreshPage() {
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
+            debounceTimer = null;
+        }
         // Clear tagged markers so cards will be re-processed
         document.querySelectorAll('[data-seer-tagged]').forEach(el => el.removeAttribute('data-seer-tagged'));
         document.querySelectorAll('.seer-tags, .seer-tag-agent-btn, .seer-suggest-btn').forEach(el => el.remove());
         document.getElementById('seer-tag-bar')?.remove();
         document.getElementById('seer-my-agents-btn')?.remove();
-        setTimeout(runAll, 300);
+        setTimeout(() => runAllSafely('manual refresh'), 300);
     }
 
     function runAll() {
@@ -2911,20 +2948,48 @@
         }
     }
 
+    function runAllSafely(reason = 'manual') {
+        debugLog(`Executing runAll (${reason})`);
+        if (mutationObserver) {
+            try {
+                mutationObserver.disconnect();
+            } catch (observerError) {
+                debugLog('Error disconnecting observer:', observerError);
+            }
+        }
+        try {
+            runAll();
+        } finally {
+            if (mutationObserver && document?.body) {
+                try {
+                    mutationObserver.observe(document.body, OBSERVER_CONFIG);
+                } catch (observeError) {
+                    console.error('[NinjaCat Seer Tags] Error re-attaching observer:', observeError);
+                }
+            }
+        }
+    }
+ 
     function observeAndRun() {
         console.log('[NinjaCat Seer Tags] Initial run scheduled');
-        setTimeout(runAll, 1500);
+        setTimeout(() => runAllSafely('initial load'), 1500);
 
-        const observer = new MutationObserver(() => {
-            if (debounceTimer) clearTimeout(debounceTimer);
+        mutationObserver = new MutationObserver((mutationList) => {
+            if (!mutationList || mutationList.length === 0) return;
+            const hasRelevantChange = mutationList.some(record => !shouldIgnoreMutation(record));
+            if (!hasRelevantChange) return;
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+            }
             debounceTimer = setTimeout(() => {
+                debounceTimer = null;
                 console.log('[NinjaCat Seer Tags] DOM changed, re-running');
-                runAll();
+                runAllSafely('dom mutation');
             }, 1000);
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        mutationObserver.observe(document.body, OBSERVER_CONFIG);
     }
-
+ 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', observeAndRun);
     } else {
