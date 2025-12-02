@@ -202,7 +202,7 @@
         return false;
     }
 
-    function sendViaSocket(messageText) {
+    function sendViaSocket(messageText, options = {}) {
         const socket = getLiveSocket();
         if (!socket) {
             debugLog('No live socket available for recovery send');
@@ -223,29 +223,23 @@
             inputs: []
         };
 
+        const forceResend = options.mode === 'resend';
+        const canResend = Boolean(context.lastUserMessageId);
+        const shouldResend = forceResend ? canResend : canResend && options.mode !== 'send-only';
+        const eventName = shouldResend ? 'resend-user-message' : 'send-user-message';
+
+        if (shouldResend) {
+            basePayload.message_id = context.lastUserMessageId;
+        }
+
         try {
-            debugLog('Emitting send-user-message via socket', basePayload);
-            socket.emit('send-user-message', basePayload);
-            return true;
+            debugLog(`Emitting ${eventName} via socket`, basePayload);
+            socket.emit(eventName, basePayload);
+            return eventName;
         } catch (err) {
-            debugLog('send-user-message emit failed:', err);
+            debugLog(`${eventName} emit failed:`, err);
+            return false;
         }
-
-        if (context.lastUserMessageId) {
-            try {
-                const resendPayload = {
-                    ...basePayload,
-                    message_id: context.lastUserMessageId
-                };
-                debugLog('Emitting resend-user-message via socket', resendPayload);
-                socket.emit('resend-user-message', resendPayload);
-                return true;
-            } catch (err) {
-                debugLog('resend-user-message emit failed:', err);
-            }
-        }
-
-        return false;
     }
 
     // ---- Conversation Context Helpers ----
@@ -375,12 +369,13 @@
         
         debugLog('Attempting error recovery send for:', text.substring(0, 80));
         
-        // Strategy 1: Emit directly via socket.io using same payload as native app
-        if (sendViaSocket(text)) {
+        // Strategy 1: Emit directly via socket.io using resend payload so prior message context remains
+        const socketEvent = sendViaSocket(text, { mode: 'resend' });
+        if (socketEvent) {
             const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
             nativeSetter.call(textarea, '');
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            showToast('Message sent (socket recovery)', 'success');
+            showToast(`Message sent (${socketEvent} recovery)`, 'success');
             return true;
         }
         
