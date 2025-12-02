@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.2.3
+// @version      1.3.0
 // @description  Multi-file drag-drop, message queue, always-unlocked input, and error recovery for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.2.3');
+    console.log('[NinjaCat Chat UX] Script loaded v1.3.0');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -40,12 +40,298 @@
     let errorDetectionEnabled = false;
     let hasShownInitError = false;
     let activeDropTarget = null; // Which file input area we're targeting
+    let capturedWebSocket = null; // Reference to the live WebSocket connection
 
     // ---- Debug Logging ----
     function debugLog(...args) {
         if (CONFIG.DEBUG) {
             console.log('[NinjaCat Chat UX DEBUG]', ...args);
         }
+    }
+
+    // ---- WebSocket Capture ----
+    // Intercept WebSocket to capture the live connection for error recovery
+    function setupWebSocketCapture() {
+        // Try to find existing WebSocket first (may already be connected)
+        findExistingWebSocket();
+        
+        if (window._ncWebSocketCaptured) return;
+        window._ncWebSocketCaptured = true;
+        
+        const OrigWebSocket = window.WebSocket;
+        window.WebSocket = function(url, protocols) {
+            const ws = protocols ? new OrigWebSocket(url, protocols) : new OrigWebSocket(url);
+            
+            // Capture socket.io connections (NinjaCat uses socket.io)
+            if (url && url.includes('socket.io')) {
+                debugLog('Captured socket.io WebSocket connection');
+                capturedWebSocket = ws;
+                
+                // Re-capture if connection is re-established
+                ws.addEventListener('open', () => {
+                    debugLog('WebSocket opened/reopened');
+                    capturedWebSocket = ws;
+                });
+                
+                ws.addEventListener('close', () => {
+                    debugLog('WebSocket closed');
+                    if (capturedWebSocket === ws) {
+                        capturedWebSocket = null;
+                    }
+                });
+            }
+            
+            return ws;
+        };
+        window.WebSocket.prototype = OrigWebSocket.prototype;
+        window.WebSocket.CONNECTING = OrigWebSocket.CONNECTING;
+        window.WebSocket.OPEN = OrigWebSocket.OPEN;
+        window.WebSocket.CLOSING = OrigWebSocket.CLOSING;
+        window.WebSocket.CLOSED = OrigWebSocket.CLOSED;
+        
+        debugLog('WebSocket capture setup complete');
+    }
+
+    /**
+     * Try to find an existing WebSocket connection (socket.io stores it)
+     */
+    function findExistingWebSocket() {
+        try {
+            // Socket.io typically stores the connection on window.io or in Vue app
+            // Try various approaches to find it
+            
+            // Approach 1: Check if socket.io manager exists
+            if (window.io?.sockets) {
+                for (const socket of Object.values(window.io.sockets)) {
+                    if (socket.io?.engine?.transport?.ws) {
+                        capturedWebSocket = socket.io.engine.transport.ws;
+                        debugLog('Found existing WebSocket via window.io');
+                        return true;
+                    }
+                }
+            }
+            
+            // Approach 2: Look in Vue app for socket
+            const app = document.querySelector('#assistants-ui')?.__vue_app__;
+            if (app) {
+                const pinia = app._context.provides?.pinia;
+                if (pinia?._s) {
+                    // Check live-chat store for socket reference
+                    const liveChatStore = pinia._s.get('live-chat');
+                    if (liveChatStore?.socket?.io?.engine?.transport?.ws) {
+                        capturedWebSocket = liveChatStore.socket.io.engine.transport.ws;
+                        debugLog('Found existing WebSocket via live-chat store');
+                        return true;
+                    }
+                }
+            }
+            
+            // Approach 3: Check for socket on window (some apps expose it)
+            if (window.socket?.io?.engine?.transport?.ws) {
+                capturedWebSocket = window.socket.io.engine.transport.ws;
+                debugLog('Found existing WebSocket via window.socket');
+                return true;
+            }
+            
+            debugLog('No existing WebSocket found - will capture on next connection');
+            return false;
+        } catch (err) {
+            debugLog('Error finding existing WebSocket:', err);
+            return false;
+        }
+    }
+
+    // ---- Error Recovery via WebSocket ----
+    /**
+     * Get Pinia store data needed for error recovery
+     * Returns { conversationId, assistantId, lastUserMessageId } or null
+     */
+    function getConversationContext() {
+        try {
+            // Access Vue app and Pinia stores
+            const app = document.querySelector('#assistants-ui')?.__vue_app__;
+            if (!app) {
+                debugLog('Vue app not found');
+                return null;
+            }
+            
+            const pinia = app._context.provides?.pinia || app.config.globalProperties?.$pinia;
+            if (!pinia) {
+                debugLog('Pinia not found');
+                return null;
+            }
+            
+            // Get conversation store
+            const conversationStore = pinia._s?.get('conversation') || pinia.state.value?.conversation;
+            if (!conversationStore) {
+                debugLog('Conversation store not found');
+                return null;
+            }
+            
+            // Get current conversation ID from URL
+            const conversationId = window.location.pathname.split('/').pop();
+            if (!conversationId || conversationId.length < 10) {
+                debugLog('Could not extract conversation ID from URL');
+                return null;
+            }
+            
+            // Get conversation data
+            const conversation = conversationStore.conversations?.[conversationId] || 
+                                conversationStore.conversation;
+            if (!conversation) {
+                debugLog('Conversation data not found');
+                return null;
+            }
+            
+            const assistantId = conversation.assistant_id || conversation.assistantId;
+            
+            // Find the last user message ID
+            let lastUserMessageId = null;
+            const messages = conversation.messages || [];
+            for (let i = messages.length - 1; i >= 0; i--) {
+                const msg = messages[i];
+                if (msg.role === 'user' || msg.type === 'user') {
+                    lastUserMessageId = msg.id || msg.message_id;
+                    break;
+                }
+            }
+            
+            debugLog('Conversation context:', { conversationId, assistantId, lastUserMessageId });
+            
+            return {
+                conversationId,
+                assistantId,
+                lastUserMessageId
+            };
+        } catch (err) {
+            console.error('[NinjaCat Chat UX] Error getting conversation context:', err);
+            return null;
+        }
+    }
+
+    /**
+     * Check if conversation is in an error state that blocks normal sends
+     */
+    function isConversationInErrorState() {
+        try {
+            const app = document.querySelector('#assistants-ui')?.__vue_app__;
+            if (!app) return false;
+            
+            const pinia = app._context.provides?.pinia || app.config.globalProperties?.$pinia;
+            if (!pinia) return false;
+            
+            const conversationId = window.location.pathname.split('/').pop();
+            
+            // Check conversation store for ERROR state
+            const conversationStore = pinia._s?.get('conversation');
+            if (conversationStore) {
+                const conv = conversationStore.conversations?.[conversationId];
+                if (conv?.state === 'ERROR') {
+                    debugLog('Conversation is in ERROR state');
+                    return true;
+                }
+            }
+            
+            // Check live-chat store for streamingMessages
+            const liveChatStore = pinia._s?.get('live-chat');
+            if (liveChatStore?.streamingMessages?.[conversationId]) {
+                debugLog('streamingMessages has stale entry');
+                return true;
+            }
+            
+            // Check for visible error UI elements
+            const errorButtons = document.querySelectorAll('button');
+            for (const btn of errorButtons) {
+                const text = btn.textContent.toLowerCase();
+                if (text.includes('resend') || text.includes('edit last message')) {
+                    debugLog('Error recovery buttons visible');
+                    return true;
+                }
+            }
+            
+            return false;
+        } catch (err) {
+            return false;
+        }
+    }
+
+    /**
+     * Generate a random request ID in the format NinjaCat uses
+     */
+    function generateRequestId() {
+        return Math.random().toString(16).substring(2, 18);
+    }
+
+    /**
+     * Send a message via WebSocket, bypassing the broken Pinia store
+     * This uses the same format as the "Edit last message" feature
+     */
+    function sendViaWebSocket(messageText) {
+        if (!capturedWebSocket || capturedWebSocket.readyState !== WebSocket.OPEN) {
+            debugLog('WebSocket not available or not open');
+            return false;
+        }
+        
+        const context = getConversationContext();
+        if (!context || !context.conversationId || !context.assistantId) {
+            debugLog('Missing conversation context for WebSocket send');
+            return false;
+        }
+        
+        // If we don't have a last user message ID, we can't use resend-user-message
+        if (!context.lastUserMessageId) {
+            debugLog('No last user message ID - cannot use resend-user-message');
+            return false;
+        }
+        
+        const payload = {
+            request_id: generateRequestId(),
+            conversation_id: context.conversationId,
+            assistant_id: context.assistantId,
+            message_id: context.lastUserMessageId,
+            message: messageText,
+            inputs: [{ type: 'FILE_UPLOAD', files: [] }]
+        };
+        
+        const message = `42["resend-user-message",${JSON.stringify(payload)}]`;
+        
+        debugLog('Sending via WebSocket:', message);
+        
+        try {
+            capturedWebSocket.send(message);
+            return true;
+        } catch (err) {
+            console.error('[NinjaCat Chat UX] WebSocket send failed:', err);
+            return false;
+        }
+    }
+
+    /**
+     * Attempt error recovery - send the current textarea content via WebSocket
+     */
+    function attemptErrorRecoverySend() {
+        const textarea = getTextarea();
+        if (!textarea) return false;
+        
+        const text = textarea.value.trim();
+        if (!text) {
+            debugLog('No text to send for error recovery');
+            return false;
+        }
+        
+        debugLog('Attempting error recovery send for:', text.substring(0, 50));
+        
+        if (sendViaWebSocket(text)) {
+            // Clear the textarea on success
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            nativeSetter.call(textarea, '');
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            showToast('Message sent (error recovery)', 'success');
+            return true;
+        }
+        
+        return false;
     }
 
     // ---- DOM Selectors ----
@@ -1034,9 +1320,22 @@
                     const textAfter = textarea.value.trim();
                     // If text is still there and matches what we had, send might have failed
                     if (textAfter === textBefore && textAfter.length > 0) {
-                        debugLog('Native send failed, text still present. Forcing manual send.');
+                        debugLog('Native send failed, text still present. Trying error recovery.');
                         
-                        // Try to wake up Vue by re-setting the value and triggering events
+                        // Check if we're in an error state that blocks sends
+                        if (isConversationInErrorState()) {
+                            debugLog('Conversation in error state - attempting WebSocket recovery');
+                            
+                            // Try to send via WebSocket (bypasses broken Pinia store)
+                            if (attemptErrorRecoverySend()) {
+                                debugLog('WebSocket error recovery successful');
+                                return;
+                            }
+                            
+                            debugLog('WebSocket recovery failed - trying button fallback');
+                        }
+                        
+                        // Fallback: Try to wake up Vue by re-setting the value and triggering events
                         const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
                         nativeSetter.call(textarea, textBefore);
                         textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1092,6 +1391,25 @@
         const result = detectAgentProcessing();
         console.log('[NinjaCat Chat UX] isAgentProcessing:', result);
         return result;
+    };
+    window._ncErrorRecovery = attemptErrorRecoverySend;
+    window._ncIsErrorState = () => {
+        const result = isConversationInErrorState();
+        console.log('[NinjaCat Chat UX] isConversationInErrorState:', result);
+        return result;
+    };
+    window._ncGetContext = () => {
+        const ctx = getConversationContext();
+        console.log('[NinjaCat Chat UX] Conversation context:', ctx);
+        return ctx;
+    };
+    window._ncWebSocket = () => {
+        console.log('[NinjaCat Chat UX] WebSocket:', capturedWebSocket, 
+                    'readyState:', capturedWebSocket?.readyState);
+        return capturedWebSocket;
+    };
+    window._ncSendWS = (text) => {
+        return sendViaWebSocket(text);
     };
 
     // ---- Error Detection (DISABLED by default - too many false positives) ----
@@ -1170,6 +1488,9 @@
     function init() {
         console.log('[NinjaCat Chat UX] Initializing...');
 
+        // Setup WebSocket capture FIRST (before any connections are made)
+        setupWebSocketCapture();
+        
         injectStyles();
         createDropZone();
         setupDragListeners();
