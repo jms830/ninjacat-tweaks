@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
+// @version      1.3.2
 // @description  Multi-file drag-drop, message queue, always-unlocked input, and error recovery for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.3.1');
+    console.log('[NinjaCat Chat UX] Script loaded v1.3.2');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -48,6 +48,64 @@
         }
     }
 
+    // ---- App / Store Helpers ----
+    function getAppContext() {
+        const app = document.querySelector('#assistants-ui')?.__vue_app__;
+        const pinia = app?._context?.provides?.pinia || app?.config?.globalProperties?.$pinia;
+        return { app, pinia };
+    }
+
+    function getPiniaStores() {
+        const { pinia } = getAppContext();
+        if (!pinia) return {};
+        const storeAccessor = pinia._s?.get ? (name) => pinia._s.get(name) : () => null;
+        return {
+            pinia,
+            conversationStore: storeAccessor('conversation') || pinia.state?.value?.conversation,
+            liveChatStore: storeAccessor('live-chat') || storeAccessor('liveChat') || pinia.state?.value?.['live-chat']
+        };
+    }
+
+    function getCurrentConversationId() {
+        const path = window.location.pathname;
+        const match = path.match(/[0-9a-fA-F-]{12,}/);
+        if (match) return match[0];
+        const parts = path.split('/').filter(Boolean);
+        return parts[parts.length - 1] || parts[parts.length - 2] || '';
+    }
+
+    function generateRequestId() {
+        return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 8)}`;
+    }
+
+    function instrumentSocket(socket) {
+        if (!socket || socket._ncInstrumented) return;
+        socket._ncInstrumented = true;
+        const origEmit = socket.emit;
+        socket.emit = function(event, ...args) {
+            if (CONFIG.DEBUG && typeof event === 'string' && event.includes('message')) {
+                debugLog('socket.emit', event, args[0]);
+            }
+            return origEmit.apply(this, [event, ...args]);
+        };
+        debugLog('Socket instrumentation attached');
+    }
+
+    function getLiveSocket() {
+        const { liveChatStore } = getPiniaStores();
+        let socket = liveChatStore?.socket;
+        if (!socket && window.io?.sockets) {
+            for (const candidate of Object.values(window.io.sockets)) {
+                if (candidate?.connected) {
+                    socket = candidate;
+                    break;
+                }
+            }
+        }
+        if (socket) instrumentSocket(socket);
+        return socket;
+    }
+
     // ---- Error Recovery Functions ----
     
     /**
@@ -56,40 +114,50 @@
      */
     function clearStaleStreamingState() {
         try {
-            const app = document.querySelector('#assistants-ui')?.__vue_app__;
-            if (!app) {
-                debugLog('Vue app not found for state clear');
+            const { liveChatStore, conversationStore } = getPiniaStores();
+            const conversationId = getCurrentConversationId();
+            if (!conversationId) {
+                debugLog('No conversation ID for state clear');
                 return false;
             }
-            
-            const pinia = app._context.provides?.pinia || app.config.globalProperties?.$pinia;
-            if (!pinia) {
-                debugLog('Pinia not found for state clear');
-                return false;
-            }
-            
-            const conversationId = window.location.pathname.split('/').pop();
+
             let cleared = false;
-            
-            // Clear streamingMessages in live-chat store
-            const liveChatStore = pinia._s?.get('live-chat');
-            if (liveChatStore?.streamingMessages?.[conversationId]) {
-                debugLog('Clearing stale streamingMessages entry');
-                delete liveChatStore.streamingMessages[conversationId];
-                cleared = true;
-            }
-            
-            // Reset conversation state if in ERROR
-            const conversationStore = pinia._s?.get('conversation');
-            if (conversationStore) {
-                const conv = conversationStore.conversations?.[conversationId];
-                if (conv?.state === 'ERROR') {
-                    debugLog('Resetting conversation state from ERROR to IDLE');
-                    conv.state = 'IDLE';
-                    cleared = true;
+
+            // Clear streamingMessages via $patch for reactivity
+            if (liveChatStore) {
+                const patchFn = (state) => {
+                    if (state.streamingMessages?.[conversationId]) {
+                        debugLog('Clearing stale streamingMessages entry');
+                        delete state.streamingMessages[conversationId];
+                        cleared = true;
+                    }
+                };
+
+                if (typeof liveChatStore.$patch === 'function') {
+                    liveChatStore.$patch(patchFn);
+                } else if (liveChatStore.streamingMessages) {
+                    patchFn(liveChatStore);
                 }
             }
-            
+
+            // Reset conversation state if in ERROR
+            if (conversationStore) {
+                const patchConv = (state) => {
+                    const conv = state.conversations?.[conversationId] || state.conversation;
+                    if (conv?.state === 'ERROR') {
+                        debugLog('Resetting conversation state from ERROR to IDLE');
+                        conv.state = 'IDLE';
+                        cleared = true;
+                    }
+                };
+
+                if (typeof conversationStore.$patch === 'function') {
+                    conversationStore.$patch(patchConv);
+                } else {
+                    patchConv(conversationStore);
+                }
+            }
+
             if (cleared) {
                 debugLog('Stale state cleared successfully');
             }
@@ -134,51 +202,79 @@
         return false;
     }
 
-    // ---- Error Recovery via WebSocket ----
+    function sendViaSocket(messageText) {
+        const socket = getLiveSocket();
+        if (!socket) {
+            debugLog('No live socket available for recovery send');
+            return false;
+        }
+
+        const context = getConversationContext();
+        if (!context || !context.conversationId || !context.assistantId) {
+            debugLog('Missing context for socket send');
+            return false;
+        }
+
+        const basePayload = {
+            request_id: generateRequestId(),
+            conversation_id: context.conversationId,
+            assistant_id: context.assistantId,
+            message: messageText,
+            inputs: []
+        };
+
+        try {
+            debugLog('Emitting send-user-message via socket', basePayload);
+            socket.emit('send-user-message', basePayload);
+            return true;
+        } catch (err) {
+            debugLog('send-user-message emit failed:', err);
+        }
+
+        if (context.lastUserMessageId) {
+            try {
+                const resendPayload = {
+                    ...basePayload,
+                    message_id: context.lastUserMessageId
+                };
+                debugLog('Emitting resend-user-message via socket', resendPayload);
+                socket.emit('resend-user-message', resendPayload);
+                return true;
+            } catch (err) {
+                debugLog('resend-user-message emit failed:', err);
+            }
+        }
+
+        return false;
+    }
+
+    // ---- Conversation Context Helpers ----
     /**
      * Get Pinia store data needed for error recovery
      * Returns { conversationId, assistantId, lastUserMessageId } or null
      */
     function getConversationContext() {
         try {
-            // Access Vue app and Pinia stores
-            const app = document.querySelector('#assistants-ui')?.__vue_app__;
-            if (!app) {
-                debugLog('Vue app not found');
-                return null;
-            }
-            
-            const pinia = app._context.provides?.pinia || app.config.globalProperties?.$pinia;
-            if (!pinia) {
-                debugLog('Pinia not found');
-                return null;
-            }
-            
-            // Get conversation store
-            const conversationStore = pinia._s?.get('conversation') || pinia.state.value?.conversation;
+            const { conversationStore } = getPiniaStores();
             if (!conversationStore) {
                 debugLog('Conversation store not found');
                 return null;
             }
-            
-            // Get current conversation ID from URL
-            const conversationId = window.location.pathname.split('/').pop();
-            if (!conversationId || conversationId.length < 10) {
-                debugLog('Could not extract conversation ID from URL');
+
+            const conversationId = getCurrentConversationId();
+            if (!conversationId) {
+                debugLog('Could not extract conversation ID');
                 return null;
             }
-            
-            // Get conversation data
-            const conversation = conversationStore.conversations?.[conversationId] || 
-                                conversationStore.conversation;
+
+            const conversation = conversationStore.conversations?.[conversationId] || conversationStore.conversation;
             if (!conversation) {
                 debugLog('Conversation data not found');
                 return null;
             }
-            
+
             const assistantId = conversation.assistant_id || conversation.assistantId;
-            
-            // Find the last user message ID
+
             let lastUserMessageId = null;
             const messages = conversation.messages || [];
             for (let i = messages.length - 1; i >= 0; i--) {
@@ -188,14 +284,9 @@
                     break;
                 }
             }
-            
+
             debugLog('Conversation context:', { conversationId, assistantId, lastUserMessageId });
-            
-            return {
-                conversationId,
-                assistantId,
-                lastUserMessageId
-            };
+            return { conversationId, assistantId, lastUserMessageId };
         } catch (err) {
             console.error('[NinjaCat Chat UX] Error getting conversation context:', err);
             return null;
@@ -207,16 +298,9 @@
      */
     function isConversationInErrorState() {
         try {
-            const app = document.querySelector('#assistants-ui')?.__vue_app__;
-            if (!app) return false;
-            
-            const pinia = app._context.provides?.pinia || app.config.globalProperties?.$pinia;
-            if (!pinia) return false;
-            
-            const conversationId = window.location.pathname.split('/').pop();
-            
-            // Check conversation store for ERROR state
-            const conversationStore = pinia._s?.get('conversation');
+            const { conversationStore, liveChatStore } = getPiniaStores();
+            const conversationId = getCurrentConversationId();
+
             if (conversationStore) {
                 const conv = conversationStore.conversations?.[conversationId];
                 if (conv?.state === 'ERROR') {
@@ -224,15 +308,12 @@
                     return true;
                 }
             }
-            
-            // Check live-chat store for streamingMessages
-            const liveChatStore = pinia._s?.get('live-chat');
+
             if (liveChatStore?.streamingMessages?.[conversationId]) {
                 debugLog('streamingMessages has stale entry');
                 return true;
             }
-            
-            // Check for visible error UI elements
+
             const errorButtons = document.querySelectorAll('button');
             for (const btn of errorButtons) {
                 const text = btn.textContent.toLowerCase();
@@ -241,7 +322,7 @@
                     return true;
                 }
             }
-            
+
             return false;
         } catch (err) {
             return false;
@@ -292,21 +373,24 @@
             return false;
         }
         
-        debugLog('Attempting error recovery send for:', text.substring(0, 50));
+        debugLog('Attempting error recovery send for:', text.substring(0, 80));
         
-        // First try to clear the stale state
+        // Strategy 1: Emit directly via socket.io using same payload as native app
+        if (sendViaSocket(text)) {
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            nativeSetter.call(textarea, '');
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            showToast('Message sent (socket recovery)', 'success');
+            return true;
+        }
+        
+        // Strategy 2: Clear stale Pinia state and re-trigger native send
         const stateCleared = clearStaleStreamingState();
-        
         if (stateCleared) {
-            // State was cleared - try the normal send path
             debugLog('State cleared, attempting normal send');
-            
-            // Re-trigger input event to wake up Vue
             const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
             nativeSetter.call(textarea, text);
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            
-            // Small delay then click send
             setTimeout(() => {
                 const sendBtn = findSendButton();
                 if (sendBtn) {
@@ -318,14 +402,18 @@
                     });
                     sendBtn.dispatchEvent(clickEvent);
                 }
-            }, 100);
-            
+            }, 80);
             return true;
         }
         
-        // If state clear didn't work, try clicking native recovery buttons
+        // Strategy 3: Click visible recovery buttons
         if (clickResendButton()) {
             showToast('Clicked Resend button', 'success');
+            return true;
+        }
+        
+        if (clickEditLastMessageButton()) {
+            showToast('Clicked Edit last message button', 'info');
             return true;
         }
         
@@ -1402,6 +1490,11 @@
         console.log('[NinjaCat Chat UX] Conversation context:', ctx);
         return ctx;
     };
+    window._ncSocket = () => {
+        const socket = getLiveSocket();
+        console.log('[NinjaCat Chat UX] Socket:', socket);
+        return socket;
+    };
     window._ncClickResend = clickResendButton;
     window._ncClickEdit = clickEditLastMessageButton;
 
@@ -1486,6 +1579,7 @@
         setupDragListeners();
         setupInputInterception();
         setupObserver();
+        getLiveSocket();
 
         // Initial state check
         updateAgentState();
