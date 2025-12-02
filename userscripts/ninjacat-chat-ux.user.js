@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Multi-file drag-drop, message queue, always-unlocked input, and error recovery for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.0.0');
+    console.log('[NinjaCat Chat UX] Script loaded v1.0.1');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -37,6 +37,8 @@
     let queuePaused = false;
     let dropZoneVisible = false;
     let observer = null;
+    let errorDetectionEnabled = false; // Disabled by default - too many false positives
+    let hasShownInitError = false; // Prevent repeated error toasts on init
 
     // ---- Debug Logging ----
     function debugLog(...args) {
@@ -74,10 +76,8 @@
     }
 
     function getInputContainer() {
-        // Try multiple approaches to find the input container
         const textarea = getTextarea();
         if (textarea) {
-            // Walk up to find the rounded border container
             let el = textarea.parentElement;
             while (el) {
                 if (el.classList.contains('rounded-3xl') || 
@@ -267,48 +267,6 @@
                 background: #F3F4F6;
             }
             
-            /* File count badge */
-            .nc-file-badge {
-                position: absolute;
-                top: -4px;
-                right: -4px;
-                background: #3B82F6;
-                color: white;
-                font-size: 10px;
-                font-weight: 600;
-                padding: 2px 5px;
-                border-radius: 8px;
-                min-width: 14px;
-                text-align: center;
-            }
-            
-            /* Status indicator */
-            .nc-status-indicator {
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                padding: 4px 10px;
-                border-radius: 12px;
-                font-size: 11px;
-                font-weight: 500;
-                margin-left: 8px;
-            }
-            
-            .nc-status-processing {
-                background: #DBEAFE;
-                color: #1E40AF;
-            }
-            
-            .nc-status-error {
-                background: #FEE2E2;
-                color: #991B1B;
-            }
-            
-            .nc-status-queued {
-                background: #FEF3C7;
-                color: #92400E;
-            }
-            
             /* Toast notifications */
             .nc-toast {
                 position: fixed;
@@ -355,15 +313,12 @@
         toast.textContent = message;
         toast.className = `nc-toast ${type}`;
         
-        // Clear existing timeout
         if (toastTimeout) clearTimeout(toastTimeout);
         
-        // Show toast
         requestAnimationFrame(() => {
             toast.classList.add('visible');
         });
         
-        // Hide after delay
         toastTimeout = setTimeout(() => {
             toast.classList.remove('visible');
         }, 3000);
@@ -385,11 +340,13 @@
         `;
         document.body.appendChild(dropZone);
 
-        // Handle drop
-        dropZone.addEventListener('drop', handleDrop);
-        dropZone.addEventListener('dragover', (e) => e.preventDefault());
+        // Handle drop on the zone itself
+        dropZone.addEventListener('drop', handleDrop, true);
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, true);
         dropZone.addEventListener('dragleave', (e) => {
-            // Only hide if leaving the drop zone entirely
             if (e.relatedTarget === null || !dropZone.contains(e.relatedTarget)) {
                 hideDropZone();
             }
@@ -402,6 +359,7 @@
         const dropZone = document.getElementById('nc-drop-zone') || createDropZone();
         dropZone.classList.add('visible');
         dropZoneVisible = true;
+        debugLog('Drop zone shown');
     }
 
     function hideDropZone() {
@@ -410,21 +368,28 @@
             dropZone.classList.remove('visible');
         }
         dropZoneVisible = false;
+        debugLog('Drop zone hidden');
     }
 
     function handleDrop(e) {
         e.preventDefault();
+        e.stopPropagation();
         hideDropZone();
 
         const files = Array.from(e.dataTransfer?.files || []);
-        if (files.length === 0) return;
-
-        debugLog('Dropped files:', files.map(f => f.name));
+        debugLog('Drop event - files:', files.length, files.map(f => f.name));
+        
+        if (files.length === 0) {
+            debugLog('No files in drop');
+            return;
+        }
 
         // Filter valid files
         const validFiles = files.filter(file => {
             const ext = '.' + file.name.split('.').pop().toLowerCase();
-            return CONFIG.ACCEPTED_FILE_TYPES.includes(ext);
+            const isValid = CONFIG.ACCEPTED_FILE_TYPES.includes(ext);
+            debugLog(`File ${file.name} ext=${ext} valid=${isValid}`);
+            return isValid;
         });
 
         const invalidCount = files.length - validFiles.length;
@@ -432,64 +397,100 @@
             showToast(`${invalidCount} file(s) rejected - unsupported type`, 'error');
         }
 
-        if (validFiles.length === 0) return;
+        if (validFiles.length === 0) {
+            debugLog('No valid files after filtering');
+            return;
+        }
 
         // Attach files to the hidden file input
         attachFilesToInput(validFiles);
-        showToast(`${validFiles.length} file(s) attached`, 'success');
     }
 
     function attachFilesToInput(files) {
         const fileInput = getFileInput();
+        debugLog('Looking for file input, found:', fileInput);
+        
         if (!fileInput) {
             console.error('[NinjaCat Chat UX] File input not found');
             showToast('Could not attach files - input not found', 'error');
             return;
         }
 
-        // Create a DataTransfer to set files on input
-        const dataTransfer = new DataTransfer();
-        files.forEach(file => dataTransfer.items.add(file));
-        
-        fileInput.files = dataTransfer.files;
-        
-        // Trigger change event
-        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-        
-        debugLog('Files attached to input:', fileInput.files.length);
+        try {
+            // Create a DataTransfer to set files on input
+            const dataTransfer = new DataTransfer();
+            files.forEach(file => {
+                dataTransfer.items.add(file);
+                debugLog('Added file to DataTransfer:', file.name);
+            });
+            
+            // Set files on the input
+            fileInput.files = dataTransfer.files;
+            debugLog('Set files on input, count:', fileInput.files.length);
+            
+            // Dispatch multiple events to ensure Vue/React picks it up
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+            fileInput.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            // Also try clicking the attach button to trigger the file handling
+            // This simulates the user interaction flow
+            setTimeout(() => {
+                // Check if files were processed
+                if (fileInput.files.length > 0) {
+                    showToast(`${files.length} file(s) attached`, 'success');
+                    debugLog('Files successfully attached');
+                } else {
+                    debugLog('Files may not have been processed');
+                }
+            }, 100);
+            
+        } catch (err) {
+            console.error('[NinjaCat Chat UX] Error attaching files:', err);
+            showToast('Error attaching files', 'error');
+        }
     }
 
     // ---- Drag Events on Document ----
     let dragCounter = 0;
 
     function setupDragListeners() {
+        // Reset counter on any drop (even if not on our zone)
+        document.addEventListener('drop', (e) => {
+            dragCounter = 0;
+            if (dropZoneVisible) {
+                // Let our drop zone handle it
+                return;
+            }
+            // Prevent default browser behavior for drops outside our zone
+            e.preventDefault();
+        }, true);
+
         document.addEventListener('dragenter', (e) => {
             if (e.dataTransfer?.types?.includes('Files')) {
                 dragCounter++;
-                showDropZone();
+                if (dragCounter === 1) {
+                    showDropZone();
+                }
             }
-        });
+        }, false);
 
         document.addEventListener('dragleave', (e) => {
-            dragCounter--;
-            if (dragCounter === 0) {
-                hideDropZone();
+            if (e.dataTransfer?.types?.includes('Files')) {
+                dragCounter--;
+                if (dragCounter <= 0) {
+                    dragCounter = 0;
+                    hideDropZone();
+                }
             }
-        });
+        }, false);
 
         document.addEventListener('dragover', (e) => {
             if (e.dataTransfer?.types?.includes('Files')) {
                 e.preventDefault();
             }
-        });
+        }, false);
 
-        document.addEventListener('drop', (e) => {
-            dragCounter = 0;
-            // Drop is handled by dropZone if visible
-            if (!dropZoneVisible) {
-                e.preventDefault();
-            }
-        });
+        debugLog('Drag listeners setup complete');
     }
 
     // ---- Always Unlocked Input ----
@@ -497,19 +498,16 @@
         const textarea = getTextarea();
         if (!textarea) return;
 
-        // Remove disabled attribute if present
         if (textarea.disabled) {
             textarea.disabled = false;
             debugLog('Unlocked textarea (was disabled)');
         }
 
-        // Remove readonly if present
         if (textarea.readOnly) {
             textarea.readOnly = false;
             debugLog('Unlocked textarea (was readonly)');
         }
 
-        // Check for any disabling classes and remove them
         if (textarea.classList.contains('disabled') || 
             textarea.classList.contains('cursor-not-allowed')) {
             textarea.classList.remove('disabled', 'cursor-not-allowed');
@@ -519,29 +517,23 @@
 
     // ---- Agent Processing Detection ----
     function detectAgentProcessing() {
-        // Look for common indicators that agent is processing
-        // This may need adjustment based on actual NinjaCat UI
-        const indicators = [
-            // Loading spinners
-            '.animate-spin',
-            '[class*="loading"]',
-            '[class*="spinner"]',
-            // Processing text
-            '[class*="processing"]',
-            // Disabled send button
-            'button[disabled] svg[class*="arrow"]'
-        ];
-
-        for (const selector of indicators) {
-            const el = $(selector);
-            if (el && el.offsetParent !== null) {
+        // Look for specific indicators that agent is actively processing
+        // Be more conservative to avoid false positives
+        
+        // Check for spinning/loading indicators near the chat
+        const chatArea = document.querySelector('.conversationMessagesContainer, [class*="conversation"]');
+        if (chatArea) {
+            const spinner = chatArea.querySelector('.animate-spin, [class*="spinner"], [class*="loading"]');
+            if (spinner && spinner.offsetParent !== null) {
+                debugLog('Agent processing detected: spinner found');
                 return true;
             }
         }
 
-        // Check if textarea is disabled by the app
+        // Check if textarea is disabled by the app (not by us)
         const textarea = getTextarea();
-        if (textarea?.disabled) {
+        if (textarea?.disabled && !textarea.dataset.ncUnlocked) {
+            debugLog('Agent processing detected: textarea disabled');
             return true;
         }
 
@@ -564,7 +556,6 @@
     }
 
     function onAgentComplete() {
-        // If queue is not paused and has items, send next message
         if (!queuePaused && messageQueue.length > 0) {
             const nextMessage = messageQueue.shift();
             sendMessage(nextMessage);
@@ -582,6 +573,7 @@
         messageQueue.push(message);
         updateQueueUI();
         showToast(`Message queued (${messageQueue.length}/${CONFIG.MAX_QUEUE_SIZE})`, 'info');
+        debugLog('Message added to queue:', message.substring(0, 30));
         return true;
     }
 
@@ -620,26 +612,31 @@
             return;
         }
 
-        // Set textarea value
-        textarea.value = text;
+        // Set textarea value using native setter for Vue reactivity
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+        nativeInputValueSetter.call(textarea, text);
+        
+        // Dispatch input event
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
 
         // Find and click send button
-        // The send button is the blue circle with arrow
-        const sendBtn = document.querySelector('.rounded-full.bg-blue-5, .rounded-full[class*="bg-blue"]');
-        if (sendBtn) {
-            sendBtn.click();
-            debugLog('Message sent:', text.substring(0, 50) + '...');
-        } else {
-            // Fallback: simulate Enter key
-            textarea.dispatchEvent(new KeyboardEvent('keydown', {
-                key: 'Enter',
-                code: 'Enter',
-                keyCode: 13,
-                which: 13,
-                bubbles: true
-            }));
-        }
+        setTimeout(() => {
+            const sendBtn = document.querySelector('.rounded-full.bg-blue-5, .rounded-full[class*="bg-blue"], button[class*="send"]');
+            if (sendBtn) {
+                sendBtn.click();
+                debugLog('Message sent via button click');
+            } else {
+                // Fallback: simulate Enter key
+                textarea.dispatchEvent(new KeyboardEvent('keydown', {
+                    key: 'Enter',
+                    code: 'Enter',
+                    keyCode: 13,
+                    which: 13,
+                    bubbles: true
+                }));
+                debugLog('Message sent via Enter key');
+            }
+        }, 50);
     }
 
     // ---- Queue UI ----
@@ -652,7 +649,10 @@
         }
 
         const wrapper = getInputWrapper();
-        if (!wrapper) return;
+        if (!wrapper) {
+            debugLog('Could not find input wrapper for queue UI');
+            return;
+        }
 
         if (!container) {
             container = document.createElement('div');
@@ -711,7 +711,7 @@
 
         textarea.dataset.ncIntercepted = 'true';
 
-        // Intercept Enter key
+        // Intercept Enter key when agent is processing
         textarea.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 const text = textarea.value.trim();
@@ -722,47 +722,39 @@
                     e.stopPropagation();
                     
                     if (addToQueue(text)) {
-                        textarea.value = '';
+                        // Clear the textarea
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                        nativeInputValueSetter.call(textarea, '');
                         textarea.dispatchEvent(new Event('input', { bubbles: true }));
                     }
                 }
-                // If not processing, let the default behavior happen
             }
         }, true);
 
         debugLog('Input interception setup complete');
     }
 
-    // ---- Error Detection ----
+    // ---- Error Detection (DISABLED by default - too many false positives) ----
     function detectError() {
-        // Look for error messages in the chat
-        const errorIndicators = [
-            '[class*="error"]',
-            '[class*="failed"]',
-            '.text-red-500',
-            '.text-red-600'
-        ];
-
-        // Check for recent error messages
-        const messages = $$(SELECTORS.messagesContainer + ' > *');
-        if (messages.length > 0) {
-            const lastMessage = messages[messages.length - 1];
-            for (const selector of errorIndicators) {
-                if (lastMessage.querySelector(selector)) {
-                    return true;
-                }
-            }
-            // Check text content for error keywords
-            const text = lastMessage.textContent?.toLowerCase() || '';
-            if (text.includes('error') || text.includes('failed') || text.includes('something went wrong')) {
-                return true;
-            }
+        if (!errorDetectionEnabled) return false;
+        
+        // Only check for very specific error patterns
+        // This is disabled by default because it causes too many false positives
+        const chatArea = document.querySelector('.conversationMessagesContainer');
+        if (!chatArea) return false;
+        
+        // Look for error toast or modal, not just any red text
+        const errorToast = document.querySelector('[class*="error-toast"], [class*="error-modal"], [role="alert"][class*="error"]');
+        if (errorToast) {
+            return true;
         }
-
+        
         return false;
     }
 
     function onErrorDetected() {
+        if (hasShownInitError) return; // Don't spam errors
+        
         debugLog('Error detected - pausing queue');
         pauseQueue();
         ensureInputUnlocked();
@@ -788,7 +780,7 @@
         }
 
         observer = new MutationObserver((mutations) => {
-            // Check for input state changes
+            // Check for input state changes (throttled)
             updateAgentState();
 
             // Re-setup input interception if textarea was re-rendered
@@ -797,18 +789,11 @@
                 setupInputInterception();
             }
 
-            // Check for errors
-            for (const mutation of mutations) {
-                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    // Small delay to let DOM settle
-                    setTimeout(() => {
-                        if (detectError()) {
-                            onErrorDetected();
-                        }
-                    }, 100);
-                    break;
-                }
-            }
+            // Error detection is disabled by default
+            // Uncomment if you want to enable it:
+            // if (errorDetectionEnabled && detectError()) {
+            //     onErrorDetected();
+            // }
         });
 
         observer.observe(document.body, {
@@ -833,6 +818,9 @@
 
         // Initial state check
         updateAgentState();
+        
+        // Mark init complete to prevent repeated error toasts
+        hasShownInitError = false;
 
         console.log('[NinjaCat Chat UX] Initialization complete');
     }
@@ -841,7 +829,6 @@
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
-        // Small delay to ensure NinjaCat's Vue app has rendered
         setTimeout(init, 500);
     }
 
