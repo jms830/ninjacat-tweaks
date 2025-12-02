@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.2.2
+// @version      1.2.3
 // @description  Multi-file drag-drop, message queue, always-unlocked input, and error recovery for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.2.2');
+    console.log('[NinjaCat Chat UX] Script loaded v1.2.3');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -1017,21 +1017,46 @@
         
         // Also listen for failed sends - if Enter is pressed and nothing happens after a delay,
         // the native handler might be broken. We can detect this by checking if the text is still there.
+        let lastEnterTime = 0;
         textarea.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey && !isAgentProcessing) {
                 const textBefore = textarea.value.trim();
                 if (!textBefore) return;
                 
+                const now = Date.now();
+                lastEnterTime = now;
+                
                 // Check after a delay if the message was sent (textarea should be cleared)
                 setTimeout(() => {
+                    // Only proceed if this is still the most recent Enter press
+                    if (lastEnterTime !== now) return;
+                    
                     const textAfter = textarea.value.trim();
                     // If text is still there and matches what we had, send might have failed
                     if (textAfter === textBefore && textAfter.length > 0) {
-                        debugLog('Message may not have sent, text still present. Trying manual send.');
-                        // Don't auto-retry to avoid double-sends, just log for now
-                        // User can try clicking send button manually
+                        debugLog('Native send failed, text still present. Forcing manual send.');
+                        
+                        // Try to wake up Vue by re-setting the value and triggering events
+                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                        nativeSetter.call(textarea, textBefore);
+                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                        
+                        // Small delay then click send button with a real mouse event
+                        setTimeout(() => {
+                            const sendBtn = findSendButton();
+                            if (sendBtn) {
+                                debugLog('Clicking send button as fallback');
+                                // Use a full MouseEvent for better Vue compatibility
+                                const clickEvent = new MouseEvent('click', {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    view: window
+                                });
+                                sendBtn.dispatchEvent(clickEvent);
+                            }
+                        }, 50);
                     }
-                }, 500);
+                }, 300);
             }
         }, false); // Use bubble phase for this check
 
