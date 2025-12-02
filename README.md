@@ -6,8 +6,9 @@ Browser userscripts to enhance the [NinjaCat](https://ninjacat.io) experience.
 
 | Script | Version | Description |
 |--------|---------|-------------|
-| [Seer Agent Tags & Filter](#1-seer-agent-tags--filter) | v2.3.0 | Tag, filter, and organize agents on the Agents page |
+| [Seer Agent Tags & Filter](#1-seer-agent-tags--filter) | v2.5.2 | Tag, filter, and organize agents on the Agents page |
 | [Chat Export](#2-chat-export) | v2.6.0 | Export chat conversations to PDF or Markdown |
+| [Chat UX Enhancements](#3-chat-ux-enhancements) | v1.0.0 | Drag-drop files, message queue, always-unlocked input |
 
 ---
 
@@ -28,6 +29,7 @@ Click the links below - Tampermonkey will prompt you to install:
 
 1. **[Install Seer Agent Tags & Filter](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js)**
 2. **[Install Chat Export](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-chat-export.user.js)**
+3. **[Install Chat UX Enhancements](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-chat-ux.user.js)**
 
 ---
 
@@ -72,6 +74,34 @@ Export NinjaCat agent chat conversations to PDF or Markdown.
 1. Open any agent chat conversation
 2. Click the **Export** button in the top-right
 3. Choose **PDF** (opens print dialog) or **Markdown** (copies to clipboard)
+
+---
+
+## 3. Chat UX Enhancements
+
+**Works on**: `https://app.ninjacat.io/*/chat/*` (all chat pages)
+
+Improves the NinjaCat chat experience with better file handling, message queuing, and input management.
+
+### Features
+- **Multi-file Drag & Drop** - Drag multiple files onto the chat area to attach them
+- **Always-unlocked Input** - Chat input stays editable even while agent is processing
+- **Message Queue** - Queue up to 3 messages while waiting for agent response
+- **Queue Management** - Edit, cancel, or clear queued messages
+- **Error Recovery** - Automatically unlocks input and pauses queue on errors
+
+### Usage
+1. Open any agent chat conversation
+2. **Drag files** onto the chat area - drop zone appears automatically
+3. **Type while agent runs** - messages are queued and sent when ready
+4. **Manage queue** - click Edit/Cancel on pending messages
+
+### Debug Mode
+Enable debug logging in browser console:
+```js
+localStorage.setItem('ninjacat-chat-debug', 'true');
+location.reload();
+```
 
 ---
 
@@ -143,6 +173,8 @@ ninjacat-tweaks/
 │   ├── ninjacat-seer-tags.meta.js    # Update metadata
 │   ├── ninjacat-chat-export.user.js  # Chat export script
 │   ├── ninjacat-chat-export.meta.js  # Update metadata
+│   ├── ninjacat-chat-ux.user.js      # Chat UX enhancements
+│   ├── ninjacat-chat-ux.meta.js      # Update metadata
 │   ├── README.md                     # Detailed documentation
 │   ├── FIXES.md                      # Changelog
 │   └── TROUBLESHOOTING.md            # Help guide

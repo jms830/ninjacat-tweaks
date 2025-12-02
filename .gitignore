@@ -1,3 +1,6 @@
 
 # Test files with sensitive data
 tests/
+
+# Context for coding agent reference
+references/
