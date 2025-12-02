@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.1.0');
+    console.log('[NinjaCat Chat UX] Script loaded v1.2.0');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -685,27 +685,76 @@
 
     // ---- Agent Processing Detection ----
     function detectAgentProcessing() {
-        // Look for specific indicators that agent is actively processing
-        // Be more conservative to avoid false positives
+        // Look for indicators that agent is actively processing
         
-        // Check for spinning/loading indicators near the chat
-        const chatArea = document.querySelector('.conversationMessagesContainer, [class*="conversation"]');
-        if (chatArea) {
-            const spinner = chatArea.querySelector('.animate-spin, [class*="spinner"], [class*="loading"]');
-            if (spinner && spinner.offsetParent !== null) {
+        // Check for spinning/loading indicators anywhere in the chat area
+        const spinners = document.querySelectorAll('.animate-spin, [class*="spinner"], [class*="loading"]');
+        for (const spinner of spinners) {
+            if (spinner.offsetParent !== null) {
                 debugLog('Agent processing detected: spinner found');
                 return true;
             }
         }
-
-        // Check if textarea is disabled by the app (not by us)
-        const textarea = getTextarea();
-        if (textarea?.disabled && !textarea.dataset.ncUnlocked) {
-            debugLog('Agent processing detected: textarea disabled');
+        
+        // Check for "Stop" or "Cancel" button which indicates agent is running
+        const stopBtn = document.querySelector('button[class*="stop"], button[class*="cancel"], [data-tip*="Stop"], [data-tip*="Cancel"]');
+        if (stopBtn && stopBtn.offsetParent !== null) {
+            debugLog('Agent processing detected: stop/cancel button visible');
             return true;
+        }
+        
+        // Check for typing indicator or "thinking" state
+        const thinkingIndicators = document.querySelectorAll('[class*="thinking"], [class*="typing"], [class*="generating"]');
+        for (const indicator of thinkingIndicators) {
+            if (indicator.offsetParent !== null) {
+                debugLog('Agent processing detected: thinking indicator');
+                return true;
+            }
+        }
+
+        // Check if send button is in a disabled/grey state (not blue)
+        const sendBtn = findSendButton();
+        if (sendBtn) {
+            const hasGreyBg = sendBtn.classList.contains('bg-grey-5') || 
+                             sendBtn.className.includes('bg-grey') ||
+                             sendBtn.className.includes('grey');
+            const hasBlueBg = sendBtn.classList.contains('bg-blue-5') || 
+                             sendBtn.classList.contains('bg-blue-100') ||
+                             sendBtn.className.includes('bg-blue');
+            // If button is grey (not blue), agent might be processing
+            if (hasGreyBg && !hasBlueBg) {
+                debugLog('Agent processing detected: send button is grey');
+                return true;
+            }
         }
 
         return false;
+    }
+    
+    /**
+     * Find the send button - it's the rounded circle with an arrow icon
+     */
+    function findSendButton() {
+        // Look for the send button by its structure: rounded-full with arrow SVG
+        const candidates = document.querySelectorAll('.rounded-full');
+        for (const el of candidates) {
+            // Check if it contains the arrow SVG (path with specific clip-path)
+            const svg = el.querySelector('svg');
+            if (svg && el.offsetParent !== null) {
+                // The send button has a specific size and contains an arrow
+                const rect = el.getBoundingClientRect();
+                if (rect.width >= 20 && rect.width <= 30 && rect.height >= 20 && rect.height <= 30) {
+                    // Check if near a textarea
+                    const container = el.closest('.border.rounded-3xl, .flex.items-center');
+                    if (container && container.querySelector('#autoselect-experience, textarea')) {
+                        return el;
+                    }
+                }
+            }
+        }
+        
+        // Fallback selectors
+        return document.querySelector('.rounded-full.bg-blue-5, .rounded-full.bg-blue-100, .rounded-full.bg-grey-5');
     }
 
     function updateAgentState() {
@@ -777,34 +826,73 @@
         const textarea = getTextarea();
         if (!textarea) {
             console.error('[NinjaCat Chat UX] Cannot send - textarea not found');
-            return;
+            return false;
         }
+
+        debugLog('Sending message:', text.substring(0, 50) + '...');
+
+        // Ensure textarea is enabled
+        textarea.disabled = false;
+        textarea.readOnly = false;
 
         // Set textarea value using native setter for Vue reactivity
         const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
         nativeInputValueSetter.call(textarea, text);
         
-        // Dispatch input event
+        // Dispatch input event to trigger Vue's v-model
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        // Also trigger keyup to ensure any listeners pick it up
+        textarea.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
 
-        // Find and click send button
+        // Give Vue a moment to react, then click send
         setTimeout(() => {
-            const sendBtn = document.querySelector('.rounded-full.bg-blue-5, .rounded-full[class*="bg-blue"], button[class*="send"]');
+            const sendBtn = findSendButton();
+            debugLog('Send button found:', sendBtn);
+            
             if (sendBtn) {
+                // Make sure button is clickable
+                sendBtn.disabled = false;
                 sendBtn.click();
                 debugLog('Message sent via button click');
             } else {
-                // Fallback: simulate Enter key
-                textarea.dispatchEvent(new KeyboardEvent('keydown', {
+                // Fallback: simulate Enter key with all necessary properties
+                debugLog('No send button found, trying Enter key');
+                const enterEvent = new KeyboardEvent('keydown', {
                     key: 'Enter',
                     code: 'Enter',
                     keyCode: 13,
                     which: 13,
-                    bubbles: true
-                }));
-                debugLog('Message sent via Enter key');
+                    bubbles: true,
+                    cancelable: true
+                });
+                textarea.dispatchEvent(enterEvent);
+                debugLog('Enter key dispatched');
             }
-        }, 50);
+        }, 100);
+        
+        return true;
+    }
+    
+    /**
+     * Directly trigger a send - bypasses queue, for use after errors/cancellations
+     */
+    function forceSendCurrentInput() {
+        const textarea = getTextarea();
+        if (!textarea) return false;
+        
+        const text = textarea.value.trim();
+        if (!text) return false;
+        
+        debugLog('Force sending current input');
+        
+        // Clear the textarea first
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+        nativeInputValueSetter.call(textarea, '');
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        // Then send the message
+        return sendMessage(text);
     }
 
     // ---- Queue UI ----
@@ -879,13 +967,16 @@
 
         textarea.dataset.ncIntercepted = 'true';
 
-        // Intercept Enter key when agent is processing
+        // Intercept Enter key
         textarea.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 const text = textarea.value.trim();
                 if (!text) return;
 
+                debugLog('Enter pressed, isAgentProcessing:', isAgentProcessing);
+
                 if (isAgentProcessing) {
+                    // Agent is busy - queue the message
                     e.preventDefault();
                     e.stopPropagation();
                     
@@ -896,11 +987,64 @@
                         textarea.dispatchEvent(new Event('input', { bubbles: true }));
                     }
                 }
+                // If not processing, let the native handler work
+                // But if that fails (e.g., after error), we'll catch it below
             }
         }, true);
+        
+        // Also listen for failed sends - if Enter is pressed and nothing happens after a delay,
+        // the native handler might be broken. We can detect this by checking if the text is still there.
+        textarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !isAgentProcessing) {
+                const textBefore = textarea.value.trim();
+                if (!textBefore) return;
+                
+                // Check after a delay if the message was sent (textarea should be cleared)
+                setTimeout(() => {
+                    const textAfter = textarea.value.trim();
+                    // If text is still there and matches what we had, send might have failed
+                    if (textAfter === textBefore && textAfter.length > 0) {
+                        debugLog('Message may not have sent, text still present. Trying manual send.');
+                        // Don't auto-retry to avoid double-sends, just log for now
+                        // User can try clicking send button manually
+                    }
+                }, 500);
+            }
+        }, false); // Use bubble phase for this check
 
         debugLog('Input interception setup complete');
     }
+    
+    /**
+     * Manually add current input to queue (for testing)
+     */
+    function manualQueueCurrentInput() {
+        const textarea = getTextarea();
+        if (!textarea) return false;
+        
+        const text = textarea.value.trim();
+        if (!text) {
+            showToast('No message to queue', 'error');
+            return false;
+        }
+        
+        if (addToQueue(text)) {
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            nativeInputValueSetter.call(textarea, '');
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+        }
+        return false;
+    }
+    
+    // Expose for console testing
+    window._ncManualQueue = manualQueueCurrentInput;
+    window._ncForceSend = forceSendCurrentInput;
+    window._ncCheckProcessing = () => {
+        const result = detectAgentProcessing();
+        console.log('[NinjaCat Chat UX] isAgentProcessing:', result);
+        return result;
+    };
 
     // ---- Error Detection (DISABLED by default - too many false positives) ----
     function detectError() {
