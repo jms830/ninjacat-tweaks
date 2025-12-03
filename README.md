@@ -265,7 +265,6 @@ ninjacat-tweaks/
 │   ├── FIXES.md                      # Changelog
 │   └── TROUBLESHOOTING.md            # Help guide
 ├── specs/                            # Feature specifications
-├── references/                       # HTML snapshots for development
 ├── FEATURE_REQUESTS.md               # Feature backlog
 ├── AGENTS.md                         # Development guidelines
 └── README.md                         # This file
