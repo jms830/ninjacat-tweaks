@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Seer Agent Tags & Filter
 // @namespace    http://tampermonkey.net/
-// @version      2.5.3
+// @version      2.5.4
 // @description  Seer division tags, filtering, manual tagging, team sharing, and full customization for NinjaCat agents
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/agency/data/agents
@@ -29,7 +29,60 @@
         return;
     }
 
-    console.log('[NinjaCat Seer Tags] Script loaded v2.5.3 - Strict URL matching');
+    console.log('[NinjaCat Seer Tags] Script loaded v2.5.4 - SPA navigation cleanup');
+    
+    // ---- SPA Navigation Cleanup ----
+    // NinjaCat is a SPA - when user navigates away, we need to clean up our UI
+    let lastCheckedPath = path;
+    let navigationCheckInterval = null;
+    let mutationObserver = null;
+    
+    /**
+     * Remove all Seer Tags UI elements from the page
+     */
+    function cleanupSeerTagsUI() {
+        console.log('[NinjaCat Seer Tags] Cleaning up UI (navigated away from agents list)');
+        
+        // Remove main UI elements
+        document.getElementById('seer-tag-bar')?.remove();
+        document.getElementById('seer-tags-combined')?.remove();
+        document.getElementById('seer-my-agents-btn')?.remove();
+        document.getElementById('seer-agent-tag-modal')?.remove();
+        document.getElementById('seer-suggest-pattern-modal')?.remove();
+        document.getElementById('seer-settings-modal')?.remove();
+        
+        // Remove any injected styles
+        document.getElementById('seer-tags-styles')?.remove();
+        
+        // Disconnect the mutation observer
+        if (mutationObserver) {
+            mutationObserver.disconnect();
+            mutationObserver = null;
+        }
+        
+        // Clear the navigation check interval
+        if (navigationCheckInterval) {
+            clearInterval(navigationCheckInterval);
+            navigationCheckInterval = null;
+        }
+    }
+    
+    /**
+     * Check if we're still on the agents list page
+     */
+    function checkForNavigation() {
+        const currentPath = window.location.pathname;
+        if (currentPath !== lastCheckedPath) {
+            lastCheckedPath = currentPath;
+            const stillOnAgentsList = currentPath === '/agency/data/agents' || currentPath === '/agency/data/agents/';
+            if (!stillOnAgentsList) {
+                cleanupSeerTagsUI();
+            }
+        }
+    }
+    
+    // Start checking for SPA navigation every 500ms
+    navigationCheckInterval = setInterval(checkForNavigation, 500);
 
     // ---- Storage Keys ----
     const CONFIG_KEY = 'ninjacat-seer-tags-config';
@@ -205,7 +258,7 @@
     let timeFilter = savedFilterState.timeFilter || 'all';
     
     const OBSERVER_CONFIG = { childList: true, subtree: true };
-    let mutationObserver = null;
+    // mutationObserver is declared at top with SPA navigation cleanup
     const SEER_MANAGED_UI_SELECTOR = '#seer-tag-bar, #seer-settings-modal, #seer-agent-tag-modal, #seer-share-modal, #seer-suggest-pattern-modal, #seer-exclude-modal, #seer-exclude-users-modal';
     
     // Track which agents we've already processed to prevent flashing
