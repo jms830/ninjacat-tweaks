@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.6.0
+// @version      1.7.0
 // @description  Multi-file drag-drop, message queue, auto-linkify URLs, and partial response preservation for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.6.0');
+    console.log('[NinjaCat Chat UX] Script loaded v1.7.0');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -548,6 +548,115 @@
         } else if (!inErrorState && errorWarningVisible) {
             hideErrorStateWarning();
         }
+        
+        // Also inject Edit button if missing in cancelled state
+        injectEditButtonIfMissing();
+    }
+    
+    // ---- Inject Missing Edit Button ----
+    // NinjaCat shows "Continue" + "Resend" on cancel, but no "Edit last message"
+    // This injects the missing button to match the error state UI
+    
+    /**
+     * Check if we're in the cancelled state (has Resend but no Edit button)
+     * and inject the Edit button if missing
+     */
+    function injectEditButtonIfMissing() {
+        // Look for the cancelled state container - has "didn't finish running" text
+        const cancelledContainers = document.querySelectorAll('.flex.justify-center.gap-3');
+        
+        for (const container of cancelledContainers) {
+            // Check if this container has the Resend button but no Edit button
+            const buttons = container.querySelectorAll('button.btn');
+            if (buttons.length === 0) continue;
+            
+            let hasResend = false;
+            let hasEdit = false;
+            
+            for (const btn of buttons) {
+                const text = btn.textContent.toLowerCase();
+                if (text.includes('resend')) hasResend = true;
+                if (text.includes('edit')) hasEdit = true;
+            }
+            
+            // If we have Resend but no Edit, inject the Edit button
+            if (hasResend && !hasEdit && !container.querySelector('#nc-injected-edit-btn')) {
+                injectEditButton(container);
+            }
+        }
+    }
+    
+    /**
+     * Inject the "Edit last message" button into the button container
+     */
+    function injectEditButton(container) {
+        debugLog('Injecting Edit last message button');
+        
+        const editBtn = document.createElement('button');
+        editBtn.id = 'nc-injected-edit-btn';
+        editBtn.className = 'btn btn-small btn-primary';
+        editBtn.textContent = 'Edit last message';
+        editBtn.style.cssText = 'background-color: #3B82F6; color: white;';
+        
+        editBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            debugLog('Injected Edit button clicked');
+            
+            // Find and click the edit icon on the last user message
+            triggerNativeEditMode();
+        });
+        
+        // Insert at the end of the button group
+        container.appendChild(editBtn);
+        debugLog('Edit button injected successfully');
+    }
+    
+    /**
+     * Trigger the native edit mode by clicking the edit icon on the last user message
+     */
+    function triggerNativeEditMode() {
+        // Find all user messages (they have the grey background and are self-end aligned)
+        const userMessages = document.querySelectorAll('.styled-chat-message.self-end');
+        
+        if (userMessages.length === 0) {
+            debugLog('No user messages found');
+            showToast('Could not find message to edit', 'error');
+            return;
+        }
+        
+        const lastUserMessage = userMessages[userMessages.length - 1];
+        
+        // Find the edit icon button within this message
+        // It's the SVG with the edit/pencil icon, inside a hover-visible div
+        const editIconContainer = lastUserMessage.querySelector('.flex.justify-end');
+        if (editIconContainer) {
+            // The edit icon is the first button/div with the SVG
+            const editIcon = editIconContainer.querySelector('.cursor-pointer, [class*="cursor-pointer"]');
+            if (editIcon) {
+                debugLog('Found edit icon, clicking');
+                editIcon.click();
+                return;
+            }
+        }
+        
+        // Fallback: Try finding by SVG path (the edit pencil icon)
+        const editSvgs = lastUserMessage.querySelectorAll('svg');
+        for (const svg of editSvgs) {
+            const path = svg.querySelector('path');
+            if (path && path.getAttribute('d')?.includes('14.1131')) {
+                // This is the edit icon based on its path data
+                const clickTarget = svg.closest('.cursor-pointer') || svg.parentElement;
+                if (clickTarget) {
+                    debugLog('Found edit icon via SVG path, clicking');
+                    clickTarget.click();
+                    return;
+                }
+            }
+        }
+        
+        debugLog('Could not find edit icon');
+        showToast('Could not find edit button', 'error');
     }
 
     // ---- DOM Selectors ----
