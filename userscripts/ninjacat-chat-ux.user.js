@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.4.1
 // @description  Multi-file drag-drop, message queue, and failed response preservation for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.4.0');
+    console.log('[NinjaCat Chat UX] Script loaded v1.4.1');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -2134,6 +2134,40 @@
         return text.substring(0, maxLength) + '...';
     }
 
+    // ---- Auto-linkify URLs in Chat Messages ----
+    
+    /**
+     * Convert plain text URLs to clickable links in chat messages
+     */
+    function linkifyUrls() {
+        // Target chat message containers
+        const messages = document.querySelectorAll('.styled-chat-message p, .styled-chat-message strong, .styled-chat-message li');
+        
+        messages.forEach(el => {
+            // Skip if already processed or contains links
+            if (el.dataset.ncLinkified || el.querySelector('a')) return;
+            
+            const text = el.innerHTML;
+            // URL regex - matches http(s) URLs
+            const urlRegex = /(https?:\/\/[^\s<>"']+)/g;
+            
+            if (urlRegex.test(text)) {
+                el.innerHTML = text.replace(urlRegex, (url) => {
+                    // Clean up any trailing punctuation that got captured
+                    let cleanUrl = url;
+                    let suffix = '';
+                    if (/[.,;:!?)}\]>]$/.test(cleanUrl)) {
+                        suffix = cleanUrl.slice(-1);
+                        cleanUrl = cleanUrl.slice(0, -1);
+                    }
+                    return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" style="color: #2563EB; text-decoration: underline; word-break: break-all;">${cleanUrl}</a>${suffix}`;
+                });
+                el.dataset.ncLinkified = 'true';
+                debugLog('Linkified URL in:', el.textContent.substring(0, 50));
+            }
+        });
+    }
+
     // ---- MutationObserver ----
     function setupObserver() {
         if (observer) {
@@ -2152,6 +2186,9 @@
 
             // Check for error state changes and update UI
             updateErrorStateUI();
+            
+            // Auto-linkify URLs in new messages
+            linkifyUrls();
         });
 
         observer.observe(document.body, {
