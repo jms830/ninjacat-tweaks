@@ -202,6 +202,65 @@
         return false;
     }
 
+    /**
+     * Use native "Edit last message" flow but inject our new text
+     * This is the simplest reliable approach - let NinjaCat handle the complexity
+     */
+    function editLastMessageWithText(newText) {
+        return new Promise((resolve) => {
+            // Step 1: Click the Edit button
+            if (!clickEditLastMessageButton()) {
+                debugLog('Edit button not found');
+                resolve(false);
+                return;
+            }
+
+            // Step 2: Wait for edit textarea to appear
+            let attempts = 0;
+            const maxAttempts = 20;
+            const checkInterval = setInterval(() => {
+                attempts++;
+                
+                // Look for the edit textarea - it's usually a new textarea that appears
+                // or the existing one enters an "edit mode"
+                const editTextarea = document.querySelector('textarea[placeholder*="Edit"], textarea.editing, [data-editing="true"] textarea');
+                const anyTextarea = document.querySelector('#autoselect-experience, textarea');
+                
+                // Check if we're now in edit mode by looking for a "Save" or "Update" button
+                const saveBtn = Array.from(document.querySelectorAll('button')).find(btn => {
+                    const t = btn.textContent.toLowerCase();
+                    return t.includes('save') || t.includes('update') || t.includes('send');
+                });
+                
+                const targetTextarea = editTextarea || anyTextarea;
+                
+                if (targetTextarea && saveBtn) {
+                    clearInterval(checkInterval);
+                    debugLog('Edit mode detected, injecting new text');
+                    
+                    // Step 3: Inject our new text
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                    nativeSetter.call(targetTextarea, newText);
+                    targetTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+                    
+                    // Step 4: Click save/send after a brief delay
+                    setTimeout(() => {
+                        debugLog('Clicking save/send button');
+                        saveBtn.click();
+                        resolve(true);
+                    }, 100);
+                    return;
+                }
+                
+                if (attempts >= maxAttempts) {
+                    clearInterval(checkInterval);
+                    debugLog('Edit mode did not appear after clicking Edit button');
+                    resolve(false);
+                }
+            }, 100);
+        });
+    }
+
     function sendViaSocket(messageText, options = {}) {
         const socket = getLiveSocket();
         if (!socket) {
@@ -369,52 +428,42 @@
         
         debugLog('Attempting error recovery send for:', text.substring(0, 80));
         
-        // Strategy 1: Clear stale state FIRST, then send fresh message via socket
-        // This is the key insight: resend-user-message replays the OLD message,
-        // but send-user-message with cleared state sends NEW text while keeping conversation context
-        const stateCleared = clearStaleStreamingState();
-        debugLog('State cleared:', stateCleared);
+        // Clear stale state first
+        clearStaleStreamingState();
         
-        // Now emit a fresh send-user-message (NOT resend) with the new text
-        // Conversation context is preserved because we're in the same conversation
-        const socketEvent = sendViaSocket(text, { mode: 'send-only' });
-        if (socketEvent) {
-            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-            nativeSetter.call(textarea, '');
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            showToast(`Message sent (${socketEvent} recovery)`, 'success');
-            return true;
-        }
+        // Strategy 1: Use native "Edit last message" flow with our new text
+        // This is the most reliable - NinjaCat handles all the complexity
+        const hasEditButton = Array.from(document.querySelectorAll('button')).some(btn => 
+            btn.textContent.toLowerCase().includes('edit last message')
+        );
         
-        // Strategy 2: If socket send failed, try native send with cleared state
-        if (stateCleared) {
-            debugLog('Socket failed, trying native send after state clear');
-            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-            nativeSetter.call(textarea, text);
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            setTimeout(() => {
-                const sendBtn = findSendButton();
-                if (sendBtn) {
-                    debugLog('Clicking send button after state clear');
-                    const clickEvent = new MouseEvent('click', {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window
-                    });
-                    sendBtn.dispatchEvent(clickEvent);
+        if (hasEditButton) {
+            debugLog('Using native Edit flow with new text');
+            editLastMessageWithText(text).then(success => {
+                if (success) {
+                    // Clear the original textarea
+                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+                    nativeSetter.call(textarea, '');
+                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                    showToast('Message sent via edit', 'success');
+                } else {
+                    showToast('Edit flow failed - try manually', 'error');
                 }
-            }, 80);
-            return true;
+            });
+            return true; // We're handling it async
         }
         
-        // Strategy 3: Click visible recovery buttons as last resort
+        // Strategy 2: Try clicking Resend if no Edit button (will resend old message)
         if (clickResendButton()) {
-            showToast('Clicked Resend button', 'success');
+            showToast('Clicked Resend (sends previous message)', 'info');
             return true;
         }
         
-        if (clickEditLastMessageButton()) {
-            showToast('Clicked Edit last message button', 'info');
+        // Strategy 3: Just try the normal send button
+        const sendBtn = findSendButton();
+        if (sendBtn) {
+            debugLog('Trying normal send button');
+            sendBtn.click();
             return true;
         }
         
