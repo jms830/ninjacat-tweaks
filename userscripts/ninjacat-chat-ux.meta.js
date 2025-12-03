@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.4.2
-// @description  Multi-file drag-drop, message queue, and failed response preservation for NinjaCat chat
+// @version      1.5.0
+// @description  Multi-file drag-drop, message queue, auto-linkify URLs, and partial response preservation for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
 // @match        https://app.mymarketingreports.com/*

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.4.2
-// @description  Multi-file drag-drop, message queue, and failed response preservation for NinjaCat chat
+// @version      1.5.0
+// @description  Multi-file drag-drop, message queue, auto-linkify URLs, and partial response preservation for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
 // @match        https://app.mymarketingreports.com/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.4.2');
+    console.log('[NinjaCat Chat UX] Script loaded v1.5.0');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -483,274 +483,169 @@
         debugLog('No error recovery method succeeded');
         return false;
     }
-    // ---- Failed Response Preservation ----
+    // ---- Failed Response Preservation (Native Feel) ----
+    // When user clicks Resend, we capture the partial response and re-inject it
+    // as a native-looking message element so it stays in the conversation flow.
+    
+    let pendingPreservedContent = null; // Temporarily holds content during resend
+    let resendInterceptorSetup = false;
     
     /**
-     * Get the last agent message content from the DOM
-     * This captures what's visible in the chat, including partial/streaming content
+     * Get the last agent message element and content from the DOM
      */
-    function getLastAgentMessageFromDOM() {
-        // Look for the messages container
-        const container = document.querySelector('.conversationMessagesContainer') ||
-                          document.querySelector('[class*="messages"]');
+    function getLastAgentMessage() {
+        const container = document.querySelector('.conversationMessagesContainer');
         if (!container) {
             debugLog('Messages container not found');
             return null;
         }
         
-        // Find all message elements - agent messages typically don't have user indicators
-        // NinjaCat uses different structures, so try multiple approaches
-        const messages = container.querySelectorAll('[class*="message"]');
+        // Find message elements with index attribute (NinjaCat's message structure)
+        const messages = container.querySelectorAll('[index]');
         
         // Walk backwards to find the last agent message
         for (let i = messages.length - 1; i >= 0; i--) {
             const msg = messages[i];
             
-            // Skip if it looks like a user message (usually has different styling)
-            if (msg.querySelector('[class*="user"]') || 
-                msg.classList.toString().includes('user')) {
+            // Skip user messages (they have self-end class)
+            if (msg.classList.contains('self-end') || msg.closest('.self-end')) {
                 continue;
             }
             
-            // Get the text content
-            const content = msg.textContent?.trim();
-            if (content && content.length > 0) {
-                // Also try to get HTML content for formatting
-                const htmlContent = msg.innerHTML;
-                return {
-                    text: content,
-                    html: htmlContent,
-                    element: msg
-                };
-            }
-        }
-        
-        return null;
-    }
-    
-    /**
-     * Get streaming message content from Pinia store
-     */
-    function getStreamingMessageContent() {
-        try {
-            const { liveChatStore } = getPiniaStores();
-            const conversationId = getCurrentConversationId();
-            
-            if (liveChatStore?.streamingMessages?.[conversationId]) {
-                const streaming = liveChatStore.streamingMessages[conversationId];
-                // streamingMessages might contain the actual content or a reference
-                if (typeof streaming === 'string') {
-                    return streaming;
-                } else if (streaming?.content) {
-                    return streaming.content;
-                } else if (streaming?.text) {
-                    return streaming.text;
-                } else if (streaming?.message) {
-                    return streaming.message;
+            // Look for styled-chat-message which contains agent responses
+            const styledMessage = msg.querySelector('.styled-chat-message');
+            if (styledMessage) {
+                const text = styledMessage.textContent?.trim();
+                const html = styledMessage.innerHTML;
+                if (text && text.length > 0) {
+                    return {
+                        text: text,
+                        html: html,
+                        element: msg,
+                        styledElement: styledMessage
+                    };
                 }
-                // Try to stringify if it's an object with data
-                return JSON.stringify(streaming, null, 2);
             }
-        } catch (err) {
-            debugLog('Error getting streaming content:', err);
         }
+        
         return null;
     }
     
     /**
-     * Capture the current failed/partial response content
-     * Tries multiple sources: DOM, Pinia store, streaming state
+     * Create a native-looking preserved message element
      */
-    function captureFailedResponse() {
-        debugLog('Capturing failed response...');
+    function createPreservedMessageElement(content, html) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'nc-preserved-message';
+        wrapper.dataset.ncPreserved = 'true';
         
-        // First try to get from streaming state (most reliable for partial responses)
-        const streamingContent = getStreamingMessageContent();
-        if (streamingContent) {
-            debugLog('Got content from streaming state:', streamingContent.substring(0, 100));
-            return {
-                source: 'streaming',
-                content: streamingContent,
-                timestamp: new Date().toISOString()
-            };
-        }
-        
-        // Fall back to DOM capture
-        const domContent = getLastAgentMessageFromDOM();
-        if (domContent?.text) {
-            debugLog('Got content from DOM:', domContent.text.substring(0, 100));
-            return {
-                source: 'dom',
-                content: domContent.text,
-                html: domContent.html,
-                timestamp: new Date().toISOString()
-            };
-        }
-        
-        debugLog('No failed response content found');
-        return null;
-    }
-    
-    /**
-     * Create and inject a collapsed note showing the failed response
-     */
-    function injectFailedResponseNote(responseData) {
-        if (!responseData?.content) {
-            debugLog('No content to inject');
-            return;
-        }
-        
-        // Don't create duplicates
-        const existingNote = document.querySelector('.nc-failed-response');
-        if (existingNote) {
-            debugLog('Failed response note already exists');
-            return;
-        }
-        
-        // Find where to inject - before the input area
-        const inputWrapper = document.querySelector('.min-w-\\[200px\\].max-w-\\[840px\\]') ||
-                            document.querySelector('[class*="input"]')?.closest('div[class*="w-"]');
-        
-        if (!inputWrapper) {
-            debugLog('Could not find injection point for failed response note');
-            return;
-        }
-        
-        const noteId = 'nc-failed-' + Date.now();
-        const truncatedPreview = responseData.content.length > 100 
-            ? responseData.content.substring(0, 100) + '...' 
-            : responseData.content;
-        
-        const note = document.createElement('details');
-        note.className = 'nc-failed-response';
-        note.id = noteId;
-        
-        note.innerHTML = `
-            <summary>
-                <span class="nc-failed-response-title">
-                    <span>⚠️</span>
-                    <span>Previous response (preserved)</span>
-                </span>
-                <span class="nc-failed-response-actions">
-                    <button class="nc-failed-response-btn copy" data-action="copy" title="Copy to clipboard">
-                        Copy
-                    </button>
-                    <button class="nc-failed-response-btn dismiss" data-action="dismiss" title="Dismiss">
-                        ✕
-                    </button>
-                </span>
-            </summary>
-            <div class="nc-failed-response-content">${escapeHtml(responseData.content)}</div>
-            <div class="nc-failed-response-meta">
-                Captured from ${responseData.source} at ${new Date(responseData.timestamp).toLocaleTimeString()}
+        // Create structure that mimics NinjaCat's agent message
+        wrapper.innerHTML = `
+            <div class="nc-preserved-badge">
+                <span>Partial response (preserved)</span>
+                <button class="nc-preserved-dismiss" title="Dismiss">×</button>
             </div>
+            <div class="nc-preserved-content styled-chat-message">${html || escapeHtml(content)}</div>
         `;
         
-        // Add event listeners
-        note.querySelector('[data-action="copy"]').addEventListener('click', (e) => {
-            e.stopPropagation();
-            navigator.clipboard.writeText(responseData.content).then(() => {
-                showToast('Copied to clipboard', 'success');
-            }).catch(() => {
-                showToast('Failed to copy', 'error');
-            });
+        // Add dismiss handler
+        wrapper.querySelector('.nc-preserved-dismiss').addEventListener('click', () => {
+            wrapper.remove();
+            debugLog('Preserved message dismissed');
         });
         
-        note.querySelector('[data-action="dismiss"]').addEventListener('click', (e) => {
-            e.stopPropagation();
-            note.remove();
-            debugLog('Failed response note dismissed');
-        });
-        
-        // Insert before the input wrapper
-        inputWrapper.parentNode.insertBefore(note, inputWrapper);
-        
-        debugLog('Injected failed response note');
-        showToast('Previous response preserved - click to expand', 'info');
+        return wrapper;
     }
     
     /**
-     * Detect error state and preserve the response
-     * Call this when error buttons appear or error state is detected
+     * Inject preserved message into the conversation
      */
-    function preserveFailedResponse() {
-        if (!isConversationInErrorState()) {
-            debugLog('Not in error state, skipping preserve');
+    function injectPreservedMessage(content, html) {
+        if (!content) {
+            debugLog('No content to preserve');
             return;
         }
         
-        const responseData = captureFailedResponse();
-        if (responseData) {
-            injectFailedResponseNote(responseData);
+        const container = document.querySelector('.conversationMessagesContainer');
+        if (!container) {
+            debugLog('Cannot find messages container for injection');
+            return;
         }
+        
+        // Find where to inject - after the last user message or at the end
+        const messages = container.querySelectorAll('[index]');
+        let insertPoint = null;
+        
+        // Find the last user message to insert after it
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            if (msg.classList.contains('self-end') || msg.closest('.self-end')) {
+                insertPoint = msg;
+                break;
+            }
+        }
+        
+        const preservedEl = createPreservedMessageElement(content, html);
+        
+        if (insertPoint && insertPoint.nextSibling) {
+            insertPoint.parentNode.insertBefore(preservedEl, insertPoint.nextSibling);
+        } else {
+            // Append to container
+            container.appendChild(preservedEl);
+        }
+        
+        debugLog('Injected preserved message');
+    }
+    
+    /**
+     * Intercept Resend button clicks to preserve partial responses
+     */
+    function setupResendInterceptor() {
+        if (resendInterceptorSetup) return;
+        
+        // Use event delegation on document for Resend button clicks
+        document.addEventListener('click', (e) => {
+            const button = e.target.closest('button');
+            if (!button) return;
+            
+            const buttonText = button.textContent?.toLowerCase().trim();
+            
+            // Check if this is a Resend or Edit button
+            if (buttonText === 'resend' || buttonText === 'resend last message') {
+                debugLog('Resend button clicked - capturing partial response');
+                
+                // Capture the current partial response BEFORE native handler runs
+                const lastMessage = getLastAgentMessage();
+                if (lastMessage?.text) {
+                    pendingPreservedContent = {
+                        text: lastMessage.text,
+                        html: lastMessage.html
+                    };
+                    debugLog('Captured partial response:', lastMessage.text.substring(0, 100));
+                    
+                    // Wait for native resend to clear the message, then re-inject
+                    setTimeout(() => {
+                        if (pendingPreservedContent) {
+                            injectPreservedMessage(
+                                pendingPreservedContent.text,
+                                pendingPreservedContent.html
+                            );
+                            pendingPreservedContent = null;
+                        }
+                    }, 500); // Wait for NinjaCat to process the resend
+                }
+            }
+        }, true); // Use capture phase to run before native handlers
+        
+        resendInterceptorSetup = true;
+        debugLog('Resend interceptor setup complete');
     }
     
     // ---- Debug API ----
-    // Expose functions for manual triggering via browser console
-    // Usage: Type function name in console, e.g., _ncPreserveResponse()
-    
-    /** @function _ncPreserveResponse - Manually trigger failed response preservation */
-    window._ncPreserveResponse = preserveFailedResponse;
-    /** @function _ncCaptureResponse - Capture current failed/partial response content */
-    window._ncCaptureResponse = captureFailedResponse;
-
-    // ---- Error State Warning Banner ----
-    
-    let errorWarningVisible = false;
-    
-    /**
-     * Show warning banner when in error state
-     */
-    function showErrorStateWarning() {
-        if (document.getElementById('nc-error-state-warning')) return;
-        
-        const inputWrapper = document.querySelector('.min-w-\\[200px\\].max-w-\\[840px\\]') ||
-                            document.querySelector('[class*="input"]')?.closest('div[class*="w-"]');
-        
-        if (!inputWrapper) return;
-        
-        const warning = document.createElement('div');
-        warning.id = 'nc-error-state-warning';
-        warning.className = 'nc-error-state-warning';
-        warning.innerHTML = `
-            <span class="nc-error-state-warning-icon">⚠️</span>
-            <span class="nc-error-state-warning-text">
-                <strong>Error state - new messages blocked</strong>
-                <small>Use "Resend" or "Edit last message" buttons above to continue</small>
-            </span>
-        `;
-        
-        inputWrapper.parentNode.insertBefore(warning, inputWrapper);
-        errorWarningVisible = true;
-        debugLog('Error state warning shown');
-    }
-    
-    /**
-     * Hide the error state warning
-     */
-    function hideErrorStateWarning() {
-        const warning = document.getElementById('nc-error-state-warning');
-        if (warning) {
-            warning.remove();
-            errorWarningVisible = false;
-            debugLog('Error state warning hidden');
-        }
-    }
-    
-    /**
-     * Update error state UI - call this when state might have changed
-     */
-    function updateErrorStateUI() {
-        const inErrorState = isConversationInErrorState();
-        
-        if (inErrorState && !errorWarningVisible) {
-            showErrorStateWarning();
-            // Also preserve the failed response content
-            preserveFailedResponse();
-        } else if (!inErrorState && errorWarningVisible) {
-            hideErrorStateWarning();
-        }
-    }
+    /** @function _ncGetLastMessage - Get the last agent message from DOM */
+    window._ncGetLastMessage = getLastAgentMessage;
+    /** @function _ncInjectPreserved - Manually inject a preserved message */
+    window._ncInjectPreserved = (text) => injectPreservedMessage(text);
 
     // ---- DOM Selectors ----
     const SELECTORS = {
@@ -1121,161 +1016,53 @@
                 background: #059669;
             }
             
-            /* Failed Response Note (collapsible) */
-            .nc-failed-response {
-                margin: 12px 20px;
-                border: 1px solid #FCA5A5;
-                border-radius: 12px;
-                background: #FEF2F2;
-                overflow: hidden;
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            /* Preserved Message (native-feeling partial response) */
+            .nc-preserved-message {
+                margin: 8px 0;
+                padding: 0;
+                opacity: 0.85;
+                border-left: 3px solid #9CA3AF;
+                background: linear-gradient(to right, #F9FAFB, transparent);
             }
             
-            .nc-failed-response summary {
-                padding: 10px 14px;
-                cursor: pointer;
+            .nc-preserved-badge {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                background: #FEE2E2;
-                user-select: none;
-                list-style: none;
-            }
-            
-            .nc-failed-response summary::-webkit-details-marker {
-                display: none;
-            }
-            
-            .nc-failed-response summary::before {
-                content: '▶';
-                margin-right: 8px;
-                font-size: 10px;
-                transition: transform 0.2s ease;
-            }
-            
-            .nc-failed-response[open] summary::before {
-                transform: rotate(90deg);
-            }
-            
-            .nc-failed-response-title {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-size: 13px;
-                font-weight: 600;
-                color: #991B1B;
-            }
-            
-            .nc-failed-response-actions {
-                display: flex;
-                gap: 6px;
-            }
-            
-            .nc-failed-response-btn {
-                padding: 4px 10px;
+                padding: 6px 12px;
                 font-size: 11px;
+                color: #6B7280;
+                background: #F3F4F6;
+                border-bottom: 1px solid #E5E7EB;
+            }
+            
+            .nc-preserved-badge span {
                 font-weight: 500;
-                border-radius: 6px;
-                cursor: pointer;
-                border: 1px solid #FECACA;
-                background: white;
-                color: #991B1B;
-                transition: background 0.15s ease;
             }
             
-            .nc-failed-response-btn:hover {
-                background: #FEE2E2;
-            }
-            
-            .nc-failed-response-btn.copy {
-                background: #DBEAFE;
-                border-color: #93C5FD;
-                color: #1E40AF;
-            }
-            
-            .nc-failed-response-btn.copy:hover {
-                background: #BFDBFE;
-            }
-            
-            .nc-failed-response-btn.dismiss {
-                background: transparent;
+            .nc-preserved-dismiss {
+                background: none;
                 border: none;
                 color: #9CA3AF;
-                padding: 4px 6px;
-            }
-            
-            .nc-failed-response-btn.dismiss:hover {
-                color: #6B7280;
-            }
-            
-            .nc-failed-response-content {
-                padding: 12px 14px;
-                font-size: 13px;
-                line-height: 1.5;
-                color: #374151;
-                max-height: 300px;
-                overflow-y: auto;
-                white-space: pre-wrap;
-                word-break: break-word;
-                background: white;
-                border-top: 1px solid #FECACA;
-            }
-            
-            .nc-failed-response-content code {
-                background: #F3F4F6;
-                padding: 2px 4px;
-                border-radius: 3px;
-                font-family: ui-monospace, monospace;
-                font-size: 12px;
-            }
-            
-            .nc-failed-response-content pre {
-                background: #F3F4F6;
-                padding: 8px 10px;
-                border-radius: 6px;
-                overflow-x: auto;
-                font-family: ui-monospace, monospace;
-                font-size: 12px;
-            }
-            
-            .nc-failed-response-meta {
-                padding: 8px 14px;
-                font-size: 11px;
-                color: #9CA3AF;
-                background: #F9FAFB;
-                border-top: 1px solid #F3F4F6;
-            }
-            
-            /* Error State Warning Banner */
-            .nc-error-state-warning {
-                margin: 8px 20px;
-                padding: 10px 14px;
-                background: #FEF3C7;
-                border: 1px solid #F59E0B;
-                border-radius: 8px;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                font-size: 13px;
-                color: #92400E;
-            }
-            
-            .nc-error-state-warning-icon {
+                cursor: pointer;
                 font-size: 16px;
-                flex-shrink: 0;
+                line-height: 1;
+                padding: 2px 6px;
+                border-radius: 4px;
+                transition: all 0.15s ease;
             }
             
-            .nc-error-state-warning-text {
-                flex: 1;
+            .nc-preserved-dismiss:hover {
+                background: #E5E7EB;
+                color: #374151;
             }
             
-            .nc-error-state-warning-text strong {
-                display: block;
-                margin-bottom: 2px;
+            .nc-preserved-content {
+                padding: 12px;
             }
             
-            .nc-error-state-warning-text small {
-                color: #B45309;
+            .nc-preserved-content.styled-chat-message {
+                /* Inherit NinjaCat's styled-chat-message styles */
             }
         `;
         document.head.appendChild(styles);
@@ -1863,16 +1650,6 @@
 
                 debugLog('Enter pressed, isAgentProcessing:', isAgentProcessing);
 
-                // BLOCK sending in error state - user must use Resend/Edit buttons
-                if (isConversationInErrorState()) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    debugLog('Blocked send - conversation in error state');
-                    showToast('Error state - use Resend or Edit buttons above', 'error');
-                    updateErrorStateUI(); // Ensure warning is visible
-                    return;
-                }
-
                 if (isAgentProcessing) {
                     // Agent is busy - queue the message
                     e.preventDefault();
@@ -1886,40 +1663,8 @@
                     }
                 }
                 // If not processing, let the native handler work
-                // But if that fails (e.g., after error), we'll catch it below
             }
         }, true);
-        
-        // Also listen for failed sends - if Enter is pressed and nothing happens after a delay,
-        // check if we're in error state and show the warning
-        let lastEnterTime = 0;
-        textarea.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !isAgentProcessing) {
-                const textBefore = textarea.value.trim();
-                if (!textBefore) return;
-                
-                const now = Date.now();
-                lastEnterTime = now;
-                
-                // Check after a delay if the message was sent (textarea should be cleared)
-                setTimeout(() => {
-                    // Only proceed if this is still the most recent Enter press
-                    if (lastEnterTime !== now) return;
-                    
-                    const textAfter = textarea.value.trim();
-                    // If text is still there and matches what we had, send might have failed
-                    if (textAfter === textBefore && textAfter.length > 0) {
-                        debugLog('Native send may have failed, text still present');
-                        
-                        // Check if we're in an error state
-                        if (isConversationInErrorState()) {
-                            debugLog('Conversation in error state - showing warning');
-                            updateErrorStateUI();
-                        }
-                    }
-                }, 300);
-            }
-        }, false); // Use bubble phase for this check
 
         debugLog('Input interception setup complete');
     }
@@ -2012,33 +1757,6 @@
         }
         return { liveChatStore, conversationStore };
     };
-
-    // ---- Error Detection (DISABLED by default - too many false positives) ----
-    function detectError() {
-        if (!errorDetectionEnabled) return false;
-        
-        // Only check for very specific error patterns
-        // This is disabled by default because it causes too many false positives
-        const chatArea = document.querySelector('.conversationMessagesContainer');
-        if (!chatArea) return false;
-        
-        // Look for error toast or modal, not just any red text
-        const errorToast = document.querySelector('[class*="error-toast"], [class*="error-modal"], [role="alert"][class*="error"]');
-        if (errorToast) {
-            return true;
-        }
-        
-        return false;
-    }
-
-    function onErrorDetected() {
-        if (hasShownInitError) return; // Don't spam errors
-        
-        debugLog('Error detected - pausing queue');
-        pauseQueue();
-        ensureInputUnlocked();
-        showToast('Error detected - queue paused. Input unlocked.', 'error');
-    }
 
     // ---- Utility Functions ----
     function escapeHtml(text) {
@@ -2136,9 +1854,6 @@
             if (textarea && !textarea.dataset.ncIntercepted) {
                 setupInputInterception();
             }
-
-            // Check for error state changes and update UI
-            updateErrorStateUI();
             
             // Auto-linkify URLs in new messages (debounced to prevent performance issues)
             linkifyUrlsDebounced();
@@ -2163,13 +1878,11 @@
         setupDragListeners();
         setupInputInterception();
         setupObserver();
+        setupResendInterceptor();
         getLiveSocket();
 
         // Initial state check
         updateAgentState();
-        
-        // Mark init complete to prevent repeated error toasts
-        hasShownInitError = false;
 
         console.log('[NinjaCat Chat UX] Initialization complete');
     }
