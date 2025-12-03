@@ -500,41 +500,92 @@
         
         debugLog('Attempting error recovery send for:', text.substring(0, 80));
         
-        // NUCLEAR OPTION: Clear ALL blocking state
-        nuclearStateReset();
+        // Store the message we want to send
+        const messageToSend = text;
         
-        // Wait a tick for Vue reactivity to catch up, then try normal send
+        // STRATEGY: Soft page refresh - navigate away and back to reset Vue state
+        // This is the most reliable way to clear NinjaCat's stuck state
+        const currentUrl = window.location.href;
+        const conversationId = getCurrentConversationId();
+        
+        // Save message to sessionStorage so we can restore it after refresh
+        sessionStorage.setItem('nc_pending_message', messageToSend);
+        sessionStorage.setItem('nc_pending_conversation', conversationId);
+        
+        debugLog('Saved pending message, triggering soft refresh');
+        showToast('Resetting chat state...', 'info');
+        
+        // Navigate to agents list then back (triggers Vue re-init)
+        const agentsUrl = window.location.origin + '/agency/data/agents';
+        
+        // Use history API for smoother transition
+        window.history.pushState({}, '', agentsUrl);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        
         setTimeout(() => {
-            debugLog('Post-reset: attempting normal send');
+            window.history.pushState({}, '', currentUrl);
+            window.dispatchEvent(new PopStateEvent('popstate'));
             
-            // Re-set the textarea value to trigger Vue's v-model
-            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-            nativeSetter.call(textarea, text);
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            textarea.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
-            
-            // Small delay then click send
+            // After navigation, restore the message and send
             setTimeout(() => {
-                const sendBtn = findSendButton();
-                if (sendBtn) {
-                    debugLog('Clicking send button after nuclear reset');
-                    sendBtn.click();
-                    showToast('Message sent after state reset', 'success');
-                } else {
-                    // Fallback: try Enter key
-                    debugLog('No send button, trying Enter key');
-                    textarea.dispatchEvent(new KeyboardEvent('keydown', {
-                        key: 'Enter',
-                        code: 'Enter',
-                        keyCode: 13,
-                        which: 13,
-                        bubbles: true
-                    }));
-                }
-            }, 50);
-        }, 100);
+                restorePendingMessage();
+            }, 1000);
+        }, 500);
         
         return true;
+    }
+    
+    /**
+     * Restore and send a pending message after soft refresh
+     */
+    function restorePendingMessage() {
+        const pendingMessage = sessionStorage.getItem('nc_pending_message');
+        const pendingConversation = sessionStorage.getItem('nc_pending_conversation');
+        const currentConversation = getCurrentConversationId();
+        
+        if (!pendingMessage) {
+            debugLog('No pending message to restore');
+            return;
+        }
+        
+        if (pendingConversation !== currentConversation) {
+            debugLog('Conversation changed, clearing pending message');
+            sessionStorage.removeItem('nc_pending_message');
+            sessionStorage.removeItem('nc_pending_conversation');
+            return;
+        }
+        
+        debugLog('Restoring pending message:', pendingMessage.substring(0, 50));
+        
+        // Clear storage
+        sessionStorage.removeItem('nc_pending_message');
+        sessionStorage.removeItem('nc_pending_conversation');
+        
+        const textarea = getTextarea();
+        if (!textarea) {
+            debugLog('Textarea not found for restore');
+            showToast('Could not restore message - paste manually', 'error');
+            // Copy to clipboard as fallback
+            navigator.clipboard?.writeText(pendingMessage);
+            return;
+        }
+        
+        // Set the textarea value
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+        nativeSetter.call(textarea, pendingMessage);
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        // Wait for Vue to settle, then send
+        setTimeout(() => {
+            const sendBtn = findSendButton();
+            if (sendBtn) {
+                debugLog('Sending restored message');
+                sendBtn.click();
+                showToast('Message sent!', 'success');
+            } else {
+                showToast('Message restored - press Enter to send', 'info');
+            }
+        }, 500);
     }
 
     // ---- DOM Selectors ----
