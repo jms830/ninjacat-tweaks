@@ -109,63 +109,135 @@
     // ---- Error Recovery Functions ----
     
     /**
-     * Clear stale streaming state from Pinia store
-     * This allows the normal send to work again after an error/cancel
+     * Nuclear state reset - clear ALL blocking state to flip NinjaCat back to normal
      */
-    function clearStaleStreamingState() {
+    function nuclearStateReset() {
         try {
-            const { liveChatStore, conversationStore } = getPiniaStores();
+            const { liveChatStore, conversationStore, pinia } = getPiniaStores();
             const conversationId = getCurrentConversationId();
             if (!conversationId) {
-                debugLog('No conversation ID for state clear');
+                debugLog('No conversation ID for state reset');
                 return false;
             }
 
             let cleared = false;
+            debugLog('=== NUCLEAR STATE RESET ===');
+            debugLog('Conversation ID:', conversationId);
 
-            // Clear streamingMessages via $patch for reactivity
+            // Log current state before clearing
             if (liveChatStore) {
-                const patchFn = (state) => {
-                    if (state.streamingMessages?.[conversationId]) {
-                        debugLog('Clearing stale streamingMessages entry');
-                        delete state.streamingMessages[conversationId];
-                        cleared = true;
-                    }
-                };
+                debugLog('liveChatStore keys:', Object.keys(liveChatStore));
+                debugLog('streamingMessages:', liveChatStore.streamingMessages);
+            }
 
-                if (typeof liveChatStore.$patch === 'function') {
-                    liveChatStore.$patch(patchFn);
-                } else if (liveChatStore.streamingMessages) {
-                    patchFn(liveChatStore);
+            // Clear EVERYTHING in live-chat store that might be blocking
+            if (liveChatStore) {
+                // streamingMessages
+                if (liveChatStore.streamingMessages?.[conversationId]) {
+                    debugLog('Clearing streamingMessages[' + conversationId + ']');
+                    delete liveChatStore.streamingMessages[conversationId];
+                    cleared = true;
+                }
+                // Clear entire streamingMessages if still blocking
+                if (liveChatStore.streamingMessages && Object.keys(liveChatStore.streamingMessages).length > 0) {
+                    debugLog('Clearing ALL streamingMessages');
+                    for (const key of Object.keys(liveChatStore.streamingMessages)) {
+                        delete liveChatStore.streamingMessages[key];
+                    }
+                    cleared = true;
+                }
+                // pendingMessages
+                if (liveChatStore.pendingMessages?.[conversationId]) {
+                    debugLog('Clearing pendingMessages');
+                    delete liveChatStore.pendingMessages[conversationId];
+                    cleared = true;
+                }
+                // isStreaming flag
+                if (liveChatStore.isStreaming) {
+                    debugLog('Clearing isStreaming');
+                    liveChatStore.isStreaming = false;
+                    cleared = true;
+                }
+                // isSending flag
+                if (liveChatStore.isSending) {
+                    debugLog('Clearing isSending');
+                    liveChatStore.isSending = false;
+                    cleared = true;
+                }
+                // activeStreams
+                if (liveChatStore.activeStreams?.[conversationId]) {
+                    debugLog('Clearing activeStreams');
+                    delete liveChatStore.activeStreams[conversationId];
+                    cleared = true;
+                }
+                // error
+                if (liveChatStore.error) {
+                    debugLog('Clearing liveChatStore.error');
+                    liveChatStore.error = null;
+                    cleared = true;
                 }
             }
 
-            // Reset conversation state if in ERROR
+            // Reset conversation state
             if (conversationStore) {
-                const patchConv = (state) => {
-                    const conv = state.conversations?.[conversationId] || state.conversation;
-                    if (conv?.state === 'ERROR') {
-                        debugLog('Resetting conversation state from ERROR to IDLE');
+                debugLog('conversationStore keys:', Object.keys(conversationStore));
+                const conv = conversationStore.conversations?.[conversationId];
+                if (conv) {
+                    debugLog('Conversation state:', conv.state);
+                    // Reset state to IDLE regardless of current state
+                    if (conv.state && conv.state !== 'IDLE') {
+                        debugLog('Resetting state from', conv.state, 'to IDLE');
                         conv.state = 'IDLE';
                         cleared = true;
                     }
-                };
-
-                if (typeof conversationStore.$patch === 'function') {
-                    conversationStore.$patch(patchConv);
-                } else {
-                    patchConv(conversationStore);
+                    // Clear error
+                    if (conv.error) {
+                        debugLog('Clearing conversation.error');
+                        conv.error = null;
+                        cleared = true;
+                    }
+                    // Clear generating flags
+                    if (conv.isGenerating) {
+                        debugLog('Clearing isGenerating');
+                        conv.isGenerating = false;
+                        cleared = true;
+                    }
+                    if (conv.generating) {
+                        debugLog('Clearing generating');
+                        conv.generating = false;
+                        cleared = true;
+                    }
+                    // Clear pending
+                    if (conv.pending) {
+                        debugLog('Clearing pending');
+                        conv.pending = null;
+                        cleared = true;
+                    }
                 }
             }
 
-            if (cleared) {
-                debugLog('Stale state cleared successfully');
+            // Remove error UI elements from DOM
+            const errorButtons = document.querySelectorAll('button');
+            for (const btn of errorButtons) {
+                const text = btn.textContent.toLowerCase();
+                if (text.includes('resend') || text.includes('edit last message')) {
+                    debugLog('Hiding error button:', text);
+                    btn.style.display = 'none';
+                }
             }
+
+            debugLog('=== NUCLEAR RESET COMPLETE ===');
+            debugLog('Cleared:', cleared);
             return cleared;
         } catch (err) {
-            debugLog('Error clearing stale state:', err);
+            debugLog('Error in nuclear state reset:', err);
             return false;
         }
+    }
+
+    // Alias for compatibility
+    function clearStaleStreamingState() {
+        return nuclearStateReset();
     }
     
     /**
@@ -428,46 +500,41 @@
         
         debugLog('Attempting error recovery send for:', text.substring(0, 80));
         
-        // Clear stale state first
-        clearStaleStreamingState();
+        // NUCLEAR OPTION: Clear ALL blocking state
+        nuclearStateReset();
         
-        // Strategy 1: Use native "Edit last message" flow with our new text
-        // This is the most reliable - NinjaCat handles all the complexity
-        const hasEditButton = Array.from(document.querySelectorAll('button')).some(btn => 
-            btn.textContent.toLowerCase().includes('edit last message')
-        );
-        
-        if (hasEditButton) {
-            debugLog('Using native Edit flow with new text');
-            editLastMessageWithText(text).then(success => {
-                if (success) {
-                    // Clear the original textarea
-                    const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-                    nativeSetter.call(textarea, '');
-                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                    showToast('Message sent via edit', 'success');
+        // Wait a tick for Vue reactivity to catch up, then try normal send
+        setTimeout(() => {
+            debugLog('Post-reset: attempting normal send');
+            
+            // Re-set the textarea value to trigger Vue's v-model
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            nativeSetter.call(textarea, text);
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            textarea.dispatchEvent(new InputEvent('input', { bubbles: true, data: text }));
+            
+            // Small delay then click send
+            setTimeout(() => {
+                const sendBtn = findSendButton();
+                if (sendBtn) {
+                    debugLog('Clicking send button after nuclear reset');
+                    sendBtn.click();
+                    showToast('Message sent after state reset', 'success');
                 } else {
-                    showToast('Edit flow failed - try manually', 'error');
+                    // Fallback: try Enter key
+                    debugLog('No send button, trying Enter key');
+                    textarea.dispatchEvent(new KeyboardEvent('keydown', {
+                        key: 'Enter',
+                        code: 'Enter',
+                        keyCode: 13,
+                        which: 13,
+                        bubbles: true
+                    }));
                 }
-            });
-            return true; // We're handling it async
-        }
+            }, 50);
+        }, 100);
         
-        // Strategy 2: Try clicking Resend if no Edit button (will resend old message)
-        if (clickResendButton()) {
-            showToast('Clicked Resend (sends previous message)', 'info');
-            return true;
-        }
-        
-        // Strategy 3: Just try the normal send button
-        const sendBtn = findSendButton();
-        if (sendBtn) {
-            debugLog('Trying normal send button');
-            sendBtn.click();
-            return true;
-        }
-        
-        return false;
+        return true;
     }
 
     // ---- DOM Selectors ----
@@ -1530,6 +1597,7 @@
     };
     window._ncErrorRecovery = attemptErrorRecoverySend;
     window._ncClearState = clearStaleStreamingState;
+    window._ncNuclearReset = nuclearStateReset;
     window._ncIsErrorState = () => {
         const result = isConversationInErrorState();
         console.log('[NinjaCat Chat UX] isConversationInErrorState:', result);
@@ -1547,6 +1615,30 @@
     };
     window._ncClickResend = clickResendButton;
     window._ncClickEdit = clickEditLastMessageButton;
+    window._ncStores = () => {
+        const stores = getPiniaStores();
+        console.log('[NinjaCat Chat UX] Pinia stores:', stores);
+        return stores;
+    };
+    window._ncDumpState = () => {
+        const { liveChatStore, conversationStore } = getPiniaStores();
+        const conversationId = getCurrentConversationId();
+        console.log('=== NinjaCat State Dump ===');
+        console.log('Conversation ID:', conversationId);
+        if (liveChatStore) {
+            console.log('liveChatStore.streamingMessages:', liveChatStore.streamingMessages);
+            console.log('liveChatStore.isStreaming:', liveChatStore.isStreaming);
+            console.log('liveChatStore.isSending:', liveChatStore.isSending);
+            console.log('liveChatStore.error:', liveChatStore.error);
+        }
+        if (conversationStore) {
+            const conv = conversationStore.conversations?.[conversationId];
+            console.log('conversation.state:', conv?.state);
+            console.log('conversation.error:', conv?.error);
+            console.log('conversation.isGenerating:', conv?.isGenerating);
+        }
+        return { liveChatStore, conversationStore };
+    };
 
     // ---- Error Detection (DISABLED by default - too many false positives) ----
     function detectError() {
