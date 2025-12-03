@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.5.1
+// @version      1.6.0
 // @description  Multi-file drag-drop, message queue, auto-linkify URLs, and partial response preservation for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.5.1');
+    console.log('[NinjaCat Chat UX] Script loaded v1.6.0');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -39,6 +39,16 @@
     let observer = null;
     let activeDropTarget = null; // Which file input area we're targeting
     let linkifyDebounceTimer = null; // Debounce timer for URL linkification
+    let observerThrottleTimer = null; // Throttle timer for MutationObserver
+    let pendingObserverCallback = false; // Flag to batch observer callbacks
+    
+    // ---- Cached DOM References ----
+    // These are cached to avoid repeated querySelectorAll calls
+    let cachedTextarea = null;
+    let cachedInputContainer = null;
+    let cachedChatContainer = null;
+    let cacheValidUntil = 0; // Timestamp when cache expires
+    const CACHE_TTL = 2000; // Cache DOM refs for 2 seconds
 
     // ---- Debug Logging ----
     function debugLog(...args) {
@@ -570,9 +580,40 @@
     function $$(selector) {
         return document.querySelectorAll(selector);
     }
+    
+    /**
+     * Invalidate cached DOM references
+     * Call this on SPA navigation or when elements may have changed
+     */
+    function invalidateCache() {
+        cachedTextarea = null;
+        cachedInputContainer = null;
+        cachedChatContainer = null;
+        cacheValidUntil = 0;
+        debugLog('DOM cache invalidated');
+    }
+    
+    /**
+     * Check if cache is still valid
+     */
+    function isCacheValid() {
+        return Date.now() < cacheValidUntil;
+    }
+    
+    /**
+     * Refresh cache timestamp
+     */
+    function refreshCache() {
+        cacheValidUntil = Date.now() + CACHE_TTL;
+    }
 
     function getTextarea() {
-        return $(SELECTORS.chatTextarea);
+        if (isCacheValid() && cachedTextarea && cachedTextarea.isConnected) {
+            return cachedTextarea;
+        }
+        cachedTextarea = $(SELECTORS.chatTextarea);
+        if (cachedTextarea) refreshCache();
+        return cachedTextarea;
     }
 
     function getFileInput() {
@@ -1716,36 +1757,91 @@
     }
 
     // ---- MutationObserver ----
+    
+    /**
+     * Throttled observer callback - batches rapid mutations into single callback
+     * This significantly reduces CPU usage on busy pages
+     */
+    function handleObserverMutations() {
+        // Check for input state changes
+        updateAgentState();
+
+        // Re-setup input interception if textarea was re-rendered
+        const textarea = getTextarea();
+        if (textarea && !textarea.dataset.ncIntercepted) {
+            setupInputInterception();
+        }
+        
+        // Auto-linkify URLs in new messages (already debounced)
+        linkifyUrlsDebounced();
+        
+        // Check for error state and show/hide warning
+        updateErrorStateUI();
+    }
+    
+    /**
+     * Throttle wrapper for observer - limits callbacks to once per 200ms
+     */
+    function throttledObserverCallback() {
+        if (pendingObserverCallback) return;
+        
+        pendingObserverCallback = true;
+        
+        if (observerThrottleTimer) {
+            clearTimeout(observerThrottleTimer);
+        }
+        
+        observerThrottleTimer = setTimeout(() => {
+            pendingObserverCallback = false;
+            handleObserverMutations();
+        }, 200);
+    }
+    
+    /**
+     * Find the best container to observe (narrower scope = better performance)
+     */
+    function findObserverTarget() {
+        // Try to find the main chat/app container instead of body
+        const candidates = [
+            '#assistants-ui',
+            '[class*="conversation"]',
+            '[class*="chat-container"]',
+            'main',
+            '#app'
+        ];
+        
+        for (const selector of candidates) {
+            const el = document.querySelector(selector);
+            if (el) {
+                debugLog('Observer target found:', selector);
+                return el;
+            }
+        }
+        
+        // Fallback to body if no better target
+        debugLog('Observer target: document.body (fallback)');
+        return document.body;
+    }
+    
     function setupObserver() {
         if (observer) {
             observer.disconnect();
         }
 
-        observer = new MutationObserver((mutations) => {
-            // Check for input state changes (throttled)
-            updateAgentState();
+        observer = new MutationObserver(throttledObserverCallback);
+        
+        const target = findObserverTarget();
+        cachedChatContainer = target;
 
-            // Re-setup input interception if textarea was re-rendered
-            const textarea = getTextarea();
-            if (textarea && !textarea.dataset.ncIntercepted) {
-                setupInputInterception();
-            }
-            
-            // Auto-linkify URLs in new messages (debounced to prevent performance issues)
-            linkifyUrlsDebounced();
-            
-            // Check for error state and show/hide warning
-            updateErrorStateUI();
-        });
-
-        observer.observe(document.body, {
+        observer.observe(target, {
             childList: true,
             subtree: true,
+            // Only watch 'disabled' attribute - skip 'class' to reduce noise
             attributes: true,
-            attributeFilter: ['disabled', 'readonly', 'class']
+            attributeFilter: ['disabled', 'readonly']
         });
 
-        debugLog('MutationObserver started');
+        debugLog('MutationObserver started (throttled, scoped)');
     }
 
     // ---- Initialization ----
@@ -1777,6 +1873,8 @@
     setInterval(() => {
         if (window.location.pathname !== lastPath) {
             lastPath = window.location.pathname;
+            // Invalidate cache on any navigation
+            invalidateCache();
             if (lastPath.includes('/chat/') || lastPath.includes('/agents/')) {
                 console.log('[NinjaCat Chat UX] SPA navigation detected - re-initializing');
                 setTimeout(init, 500);
