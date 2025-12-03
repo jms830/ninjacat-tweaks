@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.3.2
-// @description  Multi-file drag-drop, message queue, always-unlocked input, and error recovery for NinjaCat chat
+// @version      1.4.0
+// @description  Multi-file drag-drop, message queue, and failed response preservation for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
 // @match        https://app.mymarketingreports.com/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.3.2');
+    console.log('[NinjaCat Chat UX] Script loaded v1.4.0');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -588,6 +588,270 @@
         }, 500);
     }
 
+    // ---- Failed Response Preservation ----
+    
+    /**
+     * Get the last agent message content from the DOM
+     * This captures what's visible in the chat, including partial/streaming content
+     */
+    function getLastAgentMessageFromDOM() {
+        // Look for the messages container
+        const container = document.querySelector('.conversationMessagesContainer') ||
+                          document.querySelector('[class*="messages"]');
+        if (!container) {
+            debugLog('Messages container not found');
+            return null;
+        }
+        
+        // Find all message elements - agent messages typically don't have user indicators
+        // NinjaCat uses different structures, so try multiple approaches
+        const messages = container.querySelectorAll('[class*="message"]');
+        
+        // Walk backwards to find the last agent message
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            
+            // Skip if it looks like a user message (usually has different styling)
+            if (msg.querySelector('[class*="user"]') || 
+                msg.classList.toString().includes('user')) {
+                continue;
+            }
+            
+            // Get the text content
+            const content = msg.textContent?.trim();
+            if (content && content.length > 0) {
+                // Also try to get HTML content for formatting
+                const htmlContent = msg.innerHTML;
+                return {
+                    text: content,
+                    html: htmlContent,
+                    element: msg
+                };
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Get streaming message content from Pinia store
+     */
+    function getStreamingMessageContent() {
+        try {
+            const { liveChatStore } = getPiniaStores();
+            const conversationId = getCurrentConversationId();
+            
+            if (liveChatStore?.streamingMessages?.[conversationId]) {
+                const streaming = liveChatStore.streamingMessages[conversationId];
+                // streamingMessages might contain the actual content or a reference
+                if (typeof streaming === 'string') {
+                    return streaming;
+                } else if (streaming?.content) {
+                    return streaming.content;
+                } else if (streaming?.text) {
+                    return streaming.text;
+                } else if (streaming?.message) {
+                    return streaming.message;
+                }
+                // Try to stringify if it's an object with data
+                return JSON.stringify(streaming, null, 2);
+            }
+        } catch (err) {
+            debugLog('Error getting streaming content:', err);
+        }
+        return null;
+    }
+    
+    /**
+     * Capture the current failed/partial response content
+     * Tries multiple sources: DOM, Pinia store, streaming state
+     */
+    function captureFailedResponse() {
+        debugLog('Capturing failed response...');
+        
+        // First try to get from streaming state (most reliable for partial responses)
+        const streamingContent = getStreamingMessageContent();
+        if (streamingContent) {
+            debugLog('Got content from streaming state:', streamingContent.substring(0, 100));
+            return {
+                source: 'streaming',
+                content: streamingContent,
+                timestamp: new Date().toISOString()
+            };
+        }
+        
+        // Fall back to DOM capture
+        const domContent = getLastAgentMessageFromDOM();
+        if (domContent?.text) {
+            debugLog('Got content from DOM:', domContent.text.substring(0, 100));
+            return {
+                source: 'dom',
+                content: domContent.text,
+                html: domContent.html,
+                timestamp: new Date().toISOString()
+            };
+        }
+        
+        debugLog('No failed response content found');
+        return null;
+    }
+    
+    /**
+     * Create and inject a collapsed note showing the failed response
+     */
+    function injectFailedResponseNote(responseData) {
+        if (!responseData?.content) {
+            debugLog('No content to inject');
+            return;
+        }
+        
+        // Don't create duplicates
+        const existingNote = document.querySelector('.nc-failed-response');
+        if (existingNote) {
+            debugLog('Failed response note already exists');
+            return;
+        }
+        
+        // Find where to inject - before the input area
+        const inputWrapper = document.querySelector('.min-w-\\[200px\\].max-w-\\[840px\\]') ||
+                            document.querySelector('[class*="input"]')?.closest('div[class*="w-"]');
+        
+        if (!inputWrapper) {
+            debugLog('Could not find injection point for failed response note');
+            return;
+        }
+        
+        const noteId = 'nc-failed-' + Date.now();
+        const truncatedPreview = responseData.content.length > 100 
+            ? responseData.content.substring(0, 100) + '...' 
+            : responseData.content;
+        
+        const note = document.createElement('details');
+        note.className = 'nc-failed-response';
+        note.id = noteId;
+        
+        note.innerHTML = `
+            <summary>
+                <span class="nc-failed-response-title">
+                    <span>⚠️</span>
+                    <span>Previous response (preserved)</span>
+                </span>
+                <span class="nc-failed-response-actions">
+                    <button class="nc-failed-response-btn copy" data-action="copy" title="Copy to clipboard">
+                        Copy
+                    </button>
+                    <button class="nc-failed-response-btn dismiss" data-action="dismiss" title="Dismiss">
+                        ✕
+                    </button>
+                </span>
+            </summary>
+            <div class="nc-failed-response-content">${escapeHtml(responseData.content)}</div>
+            <div class="nc-failed-response-meta">
+                Captured from ${responseData.source} at ${new Date(responseData.timestamp).toLocaleTimeString()}
+            </div>
+        `;
+        
+        // Add event listeners
+        note.querySelector('[data-action="copy"]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(responseData.content).then(() => {
+                showToast('Copied to clipboard', 'success');
+            }).catch(() => {
+                showToast('Failed to copy', 'error');
+            });
+        });
+        
+        note.querySelector('[data-action="dismiss"]').addEventListener('click', (e) => {
+            e.stopPropagation();
+            note.remove();
+            debugLog('Failed response note dismissed');
+        });
+        
+        // Insert before the input wrapper
+        inputWrapper.parentNode.insertBefore(note, inputWrapper);
+        
+        debugLog('Injected failed response note');
+        showToast('Previous response preserved - click to expand', 'info');
+    }
+    
+    /**
+     * Detect error state and preserve the response
+     * Call this when error buttons appear or error state is detected
+     */
+    function preserveFailedResponse() {
+        if (!isConversationInErrorState()) {
+            debugLog('Not in error state, skipping preserve');
+            return;
+        }
+        
+        const responseData = captureFailedResponse();
+        if (responseData) {
+            injectFailedResponseNote(responseData);
+        }
+    }
+    
+    // Expose for manual triggering
+    window._ncPreserveResponse = preserveFailedResponse;
+    window._ncCaptureResponse = captureFailedResponse;
+
+    // ---- Error State Warning Banner ----
+    
+    let errorWarningVisible = false;
+    
+    /**
+     * Show warning banner when in error state
+     */
+    function showErrorStateWarning() {
+        if (document.getElementById('nc-error-state-warning')) return;
+        
+        const inputWrapper = document.querySelector('.min-w-\\[200px\\].max-w-\\[840px\\]') ||
+                            document.querySelector('[class*="input"]')?.closest('div[class*="w-"]');
+        
+        if (!inputWrapper) return;
+        
+        const warning = document.createElement('div');
+        warning.id = 'nc-error-state-warning';
+        warning.className = 'nc-error-state-warning';
+        warning.innerHTML = `
+            <span class="nc-error-state-warning-icon">⚠️</span>
+            <span class="nc-error-state-warning-text">
+                <strong>Error state - new messages blocked</strong>
+                <small>Use "Resend" or "Edit last message" buttons above to continue</small>
+            </span>
+        `;
+        
+        inputWrapper.parentNode.insertBefore(warning, inputWrapper);
+        errorWarningVisible = true;
+        debugLog('Error state warning shown');
+    }
+    
+    /**
+     * Hide the error state warning
+     */
+    function hideErrorStateWarning() {
+        const warning = document.getElementById('nc-error-state-warning');
+        if (warning) {
+            warning.remove();
+            errorWarningVisible = false;
+            debugLog('Error state warning hidden');
+        }
+    }
+    
+    /**
+     * Update error state UI - call this when state might have changed
+     */
+    function updateErrorStateUI() {
+        const inErrorState = isConversationInErrorState();
+        
+        if (inErrorState && !errorWarningVisible) {
+            showErrorStateWarning();
+            // Also preserve the failed response content
+            preserveFailedResponse();
+        } else if (!inErrorState && errorWarningVisible) {
+            hideErrorStateWarning();
+        }
+    }
+
     // ---- DOM Selectors ----
     const SELECTORS = {
         chatTextarea: '#autoselect-experience',
@@ -955,6 +1219,163 @@
             
             .nc-toast.success {
                 background: #059669;
+            }
+            
+            /* Failed Response Note (collapsible) */
+            .nc-failed-response {
+                margin: 12px 20px;
+                border: 1px solid #FCA5A5;
+                border-radius: 12px;
+                background: #FEF2F2;
+                overflow: hidden;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            }
+            
+            .nc-failed-response summary {
+                padding: 10px 14px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                background: #FEE2E2;
+                user-select: none;
+                list-style: none;
+            }
+            
+            .nc-failed-response summary::-webkit-details-marker {
+                display: none;
+            }
+            
+            .nc-failed-response summary::before {
+                content: '▶';
+                margin-right: 8px;
+                font-size: 10px;
+                transition: transform 0.2s ease;
+            }
+            
+            .nc-failed-response[open] summary::before {
+                transform: rotate(90deg);
+            }
+            
+            .nc-failed-response-title {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 13px;
+                font-weight: 600;
+                color: #991B1B;
+            }
+            
+            .nc-failed-response-actions {
+                display: flex;
+                gap: 6px;
+            }
+            
+            .nc-failed-response-btn {
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 500;
+                border-radius: 6px;
+                cursor: pointer;
+                border: 1px solid #FECACA;
+                background: white;
+                color: #991B1B;
+                transition: background 0.15s ease;
+            }
+            
+            .nc-failed-response-btn:hover {
+                background: #FEE2E2;
+            }
+            
+            .nc-failed-response-btn.copy {
+                background: #DBEAFE;
+                border-color: #93C5FD;
+                color: #1E40AF;
+            }
+            
+            .nc-failed-response-btn.copy:hover {
+                background: #BFDBFE;
+            }
+            
+            .nc-failed-response-btn.dismiss {
+                background: transparent;
+                border: none;
+                color: #9CA3AF;
+                padding: 4px 6px;
+            }
+            
+            .nc-failed-response-btn.dismiss:hover {
+                color: #6B7280;
+            }
+            
+            .nc-failed-response-content {
+                padding: 12px 14px;
+                font-size: 13px;
+                line-height: 1.5;
+                color: #374151;
+                max-height: 300px;
+                overflow-y: auto;
+                white-space: pre-wrap;
+                word-break: break-word;
+                background: white;
+                border-top: 1px solid #FECACA;
+            }
+            
+            .nc-failed-response-content code {
+                background: #F3F4F6;
+                padding: 2px 4px;
+                border-radius: 3px;
+                font-family: ui-monospace, monospace;
+                font-size: 12px;
+            }
+            
+            .nc-failed-response-content pre {
+                background: #F3F4F6;
+                padding: 8px 10px;
+                border-radius: 6px;
+                overflow-x: auto;
+                font-family: ui-monospace, monospace;
+                font-size: 12px;
+            }
+            
+            .nc-failed-response-meta {
+                padding: 8px 14px;
+                font-size: 11px;
+                color: #9CA3AF;
+                background: #F9FAFB;
+                border-top: 1px solid #F3F4F6;
+            }
+            
+            /* Error State Warning Banner */
+            .nc-error-state-warning {
+                margin: 8px 20px;
+                padding: 10px 14px;
+                background: #FEF3C7;
+                border: 1px solid #F59E0B;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 13px;
+                color: #92400E;
+            }
+            
+            .nc-error-state-warning-icon {
+                font-size: 16px;
+                flex-shrink: 0;
+            }
+            
+            .nc-error-state-warning-text {
+                flex: 1;
+            }
+            
+            .nc-error-state-warning-text strong {
+                display: block;
+                margin-bottom: 2px;
+            }
+            
+            .nc-error-state-warning-text small {
+                color: #B45309;
             }
         `;
         document.head.appendChild(styles);
@@ -1538,6 +1959,16 @@
 
                 debugLog('Enter pressed, isAgentProcessing:', isAgentProcessing);
 
+                // BLOCK sending in error state - user must use Resend/Edit buttons
+                if (isConversationInErrorState()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    debugLog('Blocked send - conversation in error state');
+                    showToast('Error state - use Resend or Edit buttons above', 'error');
+                    updateErrorStateUI(); // Ensure warning is visible
+                    return;
+                }
+
                 if (isAgentProcessing) {
                     // Agent is busy - queue the message
                     e.preventDefault();
@@ -1556,7 +1987,7 @@
         }, true);
         
         // Also listen for failed sends - if Enter is pressed and nothing happens after a delay,
-        // the native handler might be broken. We can detect this by checking if the text is still there.
+        // check if we're in error state and show the warning
         let lastEnterTime = 0;
         textarea.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey && !isAgentProcessing) {
@@ -1574,40 +2005,13 @@
                     const textAfter = textarea.value.trim();
                     // If text is still there and matches what we had, send might have failed
                     if (textAfter === textBefore && textAfter.length > 0) {
-                        debugLog('Native send failed, text still present. Trying error recovery.');
+                        debugLog('Native send may have failed, text still present');
                         
-                        // Check if we're in an error state that blocks sends
+                        // Check if we're in an error state
                         if (isConversationInErrorState()) {
-                            debugLog('Conversation in error state - attempting recovery');
-                            
-                            // Try to clear stale state and re-send
-                            if (attemptErrorRecoverySend()) {
-                                debugLog('Error recovery initiated');
-                                return;
-                            }
-                            
-                            debugLog('Error recovery methods failed - trying button fallback');
+                            debugLog('Conversation in error state - showing warning');
+                            updateErrorStateUI();
                         }
-                        
-                        // Fallback: Try to wake up Vue by re-setting the value and triggering events
-                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-                        nativeSetter.call(textarea, textBefore);
-                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                        
-                        // Small delay then click send button with a real mouse event
-                        setTimeout(() => {
-                            const sendBtn = findSendButton();
-                            if (sendBtn) {
-                                debugLog('Clicking send button as fallback');
-                                // Use a full MouseEvent for better Vue compatibility
-                                const clickEvent = new MouseEvent('click', {
-                                    bubbles: true,
-                                    cancelable: true,
-                                    view: window
-                                });
-                                sendBtn.dispatchEvent(clickEvent);
-                            }
-                        }, 50);
                     }
                 }, 300);
             }
@@ -1746,11 +2150,8 @@
                 setupInputInterception();
             }
 
-            // Error detection is disabled by default
-            // Uncomment if you want to enable it:
-            // if (errorDetectionEnabled && detectError()) {
-            //     onErrorDetected();
-            // }
+            // Check for error state changes and update UI
+            updateErrorStateUI();
         });
 
         observer.observe(document.body, {
