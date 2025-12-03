@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
+// @version      1.4.2
 // @description  Multi-file drag-drop, message queue, and failed response preservation for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.4.1');
+    console.log('[NinjaCat Chat UX] Script loaded v1.4.2');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -37,9 +37,8 @@
     let queuePaused = false;
     let dropZoneVisible = false;
     let observer = null;
-    let errorDetectionEnabled = false;
-    let hasShownInitError = false;
     let activeDropTarget = null; // Which file input area we're targeting
+    let linkifyDebounceTimer = null; // Debounce timer for URL linkification
 
     // ---- Debug Logging ----
     function debugLog(...args) {
@@ -484,110 +483,6 @@
         debugLog('No error recovery method succeeded');
         return false;
     }
-
-    /**
-     * Attempt to send current message after clearing error state
-     */
-    function attemptErrorRecoverySend() {
-        const textarea = getTextarea();
-        if (!textarea) return false;
-        
-        const text = textarea.value.trim();
-        if (!text) {
-            debugLog('No text to send for error recovery');
-            return false;
-        }
-        
-        debugLog('Attempting error recovery send for:', text.substring(0, 80));
-        
-        // Store the message we want to send
-        const messageToSend = text;
-        
-        // STRATEGY: Soft page refresh - navigate away and back to reset Vue state
-        // This is the most reliable way to clear NinjaCat's stuck state
-        const currentUrl = window.location.href;
-        const conversationId = getCurrentConversationId();
-        
-        // Save message to sessionStorage so we can restore it after refresh
-        sessionStorage.setItem('nc_pending_message', messageToSend);
-        sessionStorage.setItem('nc_pending_conversation', conversationId);
-        
-        debugLog('Saved pending message, triggering soft refresh');
-        showToast('Resetting chat state...', 'info');
-        
-        // Navigate to agents list then back (triggers Vue re-init)
-        const agentsUrl = window.location.origin + '/agency/data/agents';
-        
-        // Use history API for smoother transition
-        window.history.pushState({}, '', agentsUrl);
-        window.dispatchEvent(new PopStateEvent('popstate'));
-        
-        setTimeout(() => {
-            window.history.pushState({}, '', currentUrl);
-            window.dispatchEvent(new PopStateEvent('popstate'));
-            
-            // After navigation, restore the message and send
-            setTimeout(() => {
-                restorePendingMessage();
-            }, 1000);
-        }, 500);
-        
-        return true;
-    }
-    
-    /**
-     * Restore and send a pending message after soft refresh
-     */
-    function restorePendingMessage() {
-        const pendingMessage = sessionStorage.getItem('nc_pending_message');
-        const pendingConversation = sessionStorage.getItem('nc_pending_conversation');
-        const currentConversation = getCurrentConversationId();
-        
-        if (!pendingMessage) {
-            debugLog('No pending message to restore');
-            return;
-        }
-        
-        if (pendingConversation !== currentConversation) {
-            debugLog('Conversation changed, clearing pending message');
-            sessionStorage.removeItem('nc_pending_message');
-            sessionStorage.removeItem('nc_pending_conversation');
-            return;
-        }
-        
-        debugLog('Restoring pending message:', pendingMessage.substring(0, 50));
-        
-        // Clear storage
-        sessionStorage.removeItem('nc_pending_message');
-        sessionStorage.removeItem('nc_pending_conversation');
-        
-        const textarea = getTextarea();
-        if (!textarea) {
-            debugLog('Textarea not found for restore');
-            showToast('Could not restore message - paste manually', 'error');
-            // Copy to clipboard as fallback
-            navigator.clipboard?.writeText(pendingMessage);
-            return;
-        }
-        
-        // Set the textarea value
-        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
-        nativeSetter.call(textarea, pendingMessage);
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        
-        // Wait for Vue to settle, then send
-        setTimeout(() => {
-            const sendBtn = findSendButton();
-            if (sendBtn) {
-                debugLog('Sending restored message');
-                sendBtn.click();
-                showToast('Message sent!', 'success');
-            } else {
-                showToast('Message restored - press Enter to send', 'info');
-            }
-        }, 500);
-    }
-
     // ---- Failed Response Preservation ----
     
     /**
@@ -790,8 +685,13 @@
         }
     }
     
-    // Expose for manual triggering
+    // ---- Debug API ----
+    // Expose functions for manual triggering via browser console
+    // Usage: Type function name in console, e.g., _ncPreserveResponse()
+    
+    /** @function _ncPreserveResponse - Manually trigger failed response preservation */
     window._ncPreserveResponse = preserveFailedResponse;
+    /** @function _ncCaptureResponse - Capture current failed/partial response content */
     window._ncCaptureResponse = captureFailedResponse;
 
     // ---- Error State Warning Banner ----
@@ -1938,10 +1838,14 @@
         }
     }
 
-    // Expose functions to window for onclick handlers
+    // Expose queue functions for UI onclick handlers
+    /** @function _ncClearQueue - Clear all queued messages */
     window._ncClearQueue = clearQueue;
+    /** @function _ncResumeQueue - Resume paused queue processing */
     window._ncResumeQueue = resumeQueue;
+    /** @function _ncRemoveQueueItem - Remove item from queue by index */
     window._ncRemoveQueueItem = removeFromQueue;
+    /** @function _ncEditQueueItem - Edit queued message by index */
     window._ncEditQueueItem = editQueueItem;
 
     // ---- Input Interception ----
@@ -2042,39 +1946,53 @@
         return false;
     }
     
-    // Expose for console testing
+    // ---- Debug API (continued) ----
+    // These functions are exposed for debugging via browser console
+    // Enable debug logging: localStorage.setItem('ninjacat-chat-debug', 'true'); location.reload();
+    
+    /** @function _ncManualQueue - Add current textarea content to message queue */
     window._ncManualQueue = manualQueueCurrentInput;
+    /** @function _ncForceSend - Force send current textarea content */
     window._ncForceSend = forceSendCurrentInput;
+    /** @function _ncCheckProcessing - Check if agent is currently processing */
     window._ncCheckProcessing = () => {
         const result = detectAgentProcessing();
         console.log('[NinjaCat Chat UX] isAgentProcessing:', result);
         return result;
     };
-    window._ncErrorRecovery = attemptErrorRecoverySend;
+    /** @function _ncClearState - Clear stale streaming state from Pinia */
     window._ncClearState = clearStaleStreamingState;
+    /** @function _ncNuclearReset - Nuclear reset of all blocking state */
     window._ncNuclearReset = nuclearStateReset;
+    /** @function _ncIsErrorState - Check if conversation is in error state */
     window._ncIsErrorState = () => {
         const result = isConversationInErrorState();
         console.log('[NinjaCat Chat UX] isConversationInErrorState:', result);
         return result;
     };
+    /** @function _ncGetContext - Get conversation context (IDs, last message) */
     window._ncGetContext = () => {
         const ctx = getConversationContext();
         console.log('[NinjaCat Chat UX] Conversation context:', ctx);
         return ctx;
     };
+    /** @function _ncSocket - Get live WebSocket connection */
     window._ncSocket = () => {
         const socket = getLiveSocket();
         console.log('[NinjaCat Chat UX] Socket:', socket);
         return socket;
     };
+    /** @function _ncClickResend - Click native Resend button */
     window._ncClickResend = clickResendButton;
+    /** @function _ncClickEdit - Click native Edit Last Message button */
     window._ncClickEdit = clickEditLastMessageButton;
+    /** @function _ncStores - Get Pinia store references */
     window._ncStores = () => {
         const stores = getPiniaStores();
         console.log('[NinjaCat Chat UX] Pinia stores:', stores);
         return stores;
     };
+    /** @function _ncDumpState - Dump full Pinia state to console */
     window._ncDumpState = () => {
         const { liveChatStore, conversationStore } = getPiniaStores();
         const conversationId = getCurrentConversationId();
@@ -2139,6 +2057,24 @@
     /**
      * Convert plain text URLs to clickable links in chat messages
      */
+    /**
+     * Validate that a string is a proper URL
+     * @param {string} urlString - The URL to validate
+     * @returns {boolean} - True if valid URL
+     */
+    function isValidUrl(urlString) {
+        try {
+            const url = new URL(urlString);
+            return url.protocol === 'http:' || url.protocol === 'https:';
+        } catch (e) {
+            return false;
+        }
+    }
+    
+    /**
+     * Convert plain text URLs to clickable links in chat messages
+     * Called with debouncing from MutationObserver
+     */
     function linkifyUrls() {
         // Target chat message containers
         const messages = document.querySelectorAll('.styled-chat-message p, .styled-chat-message strong, .styled-chat-message li');
@@ -2160,12 +2096,29 @@
                         suffix = cleanUrl.slice(-1);
                         cleanUrl = cleanUrl.slice(0, -1);
                     }
+                    
+                    // Validate URL before creating link
+                    if (!isValidUrl(cleanUrl)) {
+                        debugLog('Invalid URL skipped:', cleanUrl);
+                        return url; // Return original text unchanged
+                    }
+                    
                     return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" style="color: #2563EB; text-decoration: underline; word-break: break-all;">${cleanUrl}</a>${suffix}`;
                 });
                 el.dataset.ncLinkified = 'true';
                 debugLog('Linkified URL in:', el.textContent.substring(0, 50));
             }
         });
+    }
+    
+    /**
+     * Debounced version of linkifyUrls - prevents excessive calls from MutationObserver
+     */
+    function linkifyUrlsDebounced() {
+        if (linkifyDebounceTimer) {
+            clearTimeout(linkifyDebounceTimer);
+        }
+        linkifyDebounceTimer = setTimeout(linkifyUrls, 100);
     }
 
     // ---- MutationObserver ----
@@ -2187,8 +2140,8 @@
             // Check for error state changes and update UI
             updateErrorStateUI();
             
-            // Auto-linkify URLs in new messages
-            linkifyUrls();
+            // Auto-linkify URLs in new messages (debounced to prevent performance issues)
+            linkifyUrlsDebounced();
         });
 
         observer.observe(document.body, {
