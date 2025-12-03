@@ -369,8 +369,15 @@
         
         debugLog('Attempting error recovery send for:', text.substring(0, 80));
         
-        // Strategy 1: Emit directly via socket.io using resend payload so prior message context remains
-        const socketEvent = sendViaSocket(text, { mode: 'resend' });
+        // Strategy 1: Clear stale state FIRST, then send fresh message via socket
+        // This is the key insight: resend-user-message replays the OLD message,
+        // but send-user-message with cleared state sends NEW text while keeping conversation context
+        const stateCleared = clearStaleStreamingState();
+        debugLog('State cleared:', stateCleared);
+        
+        // Now emit a fresh send-user-message (NOT resend) with the new text
+        // Conversation context is preserved because we're in the same conversation
+        const socketEvent = sendViaSocket(text, { mode: 'send-only' });
         if (socketEvent) {
             const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
             nativeSetter.call(textarea, '');
@@ -379,10 +386,9 @@
             return true;
         }
         
-        // Strategy 2: Clear stale Pinia state and re-trigger native send
-        const stateCleared = clearStaleStreamingState();
+        // Strategy 2: If socket send failed, try native send with cleared state
         if (stateCleared) {
-            debugLog('State cleared, attempting normal send');
+            debugLog('Socket failed, trying native send after state clear');
             const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
             nativeSetter.call(textarea, text);
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -401,7 +407,7 @@
             return true;
         }
         
-        // Strategy 3: Click visible recovery buttons
+        // Strategy 3: Click visible recovery buttons as last resort
         if (clickResendButton()) {
             showToast('Clicked Resend button', 'success');
             return true;
