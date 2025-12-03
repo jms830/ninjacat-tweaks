@@ -1,237 +1,233 @@
-# NinjaCat Seer Agent Tags & Filter
+# NinjaCat Userscripts
 
-A powerful Tampermonkey userscript that adds tagging, filtering, and organization to the NinjaCat agents page.
+Tampermonkey userscripts to enhance NinjaCat.
 
-**Current Version: v1.5.0**
+## Scripts Overview
 
----
-
-## Quick Install (2 minutes)
-
-### Step 1: Install Tampermonkey
-
-| Browser | Link |
-|---------|------|
-| Chrome/Edge | [Install from Chrome Web Store](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo) |
-| Firefox | [Install from Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tampermonkey/) |
-| Safari | [Install from App Store](https://apps.apple.com/us/app/tampermonkey/id1482490089) |
-
-### Step 2: Install the Script
-
-**Click this link**: [Install NinjaCat Seer Tags](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js)
-
-Tampermonkey will open an install dialog. Click **Install**.
-
-### Step 3: Use It
-
-Navigate to https://app.ninjacat.io/agency/data/agents - the filter bar appears automatically!
+| Script | Version | Install |
+|--------|---------|---------|
+| Seer Agent Tags & Filter | v2.5.4 | [Install](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js) |
+| Chat Export | v2.6.0 | [Install](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-chat-export.user.js) |
+| Chat UX Enhancements | v1.7.0 | [Install](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-chat-ux.user.js) |
 
 ---
 
-## Features Overview
+## 1. Seer Agent Tags & Filter (v2.5.4)
 
-### Automatic Tagging
-Agents are automatically tagged based on keywords in their names:
-- **SEO** - agents with "seo", "keyword", "organic", etc.
-- **PDM** - agents with "paid", "ppc", "google ads", etc.
-- **ANA** - agents with "analytics", "ga4", etc.
-- And 7 more default categories...
+**File:** `ninjacat-seer-tags.user.js`  
+**Works on:** `https://app.ninjacat.io/agency/data/agents`
 
-### Filter Bar
-<!-- Screenshot removed for public release -->
+### Complete Feature List
 
-- **Division Filters** - Click to show only agents matching that division
-- **Data Source Filters** - Filter by Google Analytics, GSC, Meta Ads, etc.
-- **Untagged Filter** - Find agents that haven't been categorized yet
-- **Multi-select** - Hold `Ctrl/Cmd` and click to select multiple filters
-- **Result Count** - Shows "Showing X of Y agents" when filtering
+#### Tagging & Detection
+- Auto-tag agents based on name patterns (10 default categories)
+- Manual tagging via tag button (🏷️) on each agent
+- Add pattern button (➕) to improve auto-detection
+- Manual tags shown with dashed border to distinguish from auto-detected
 
-### Manual Tagging
-Not every agent gets auto-tagged correctly. For those:
-1. Click the **🏷️** button next to any agent
-2. Select the tags you want to assign
-3. Click **Save**
+#### Filtering
+- Filter by division/tag (click to toggle, Ctrl+click for multi-select)
+- Filter by data source (GA4, GSC, Sheets, Meta, Google Ads, SQL, BigQuery)
+- Filter by owner (hide specific users' agents)
+- Filter by time (all, 24h, 7d, 30d)
+- "My Agents" quick filter
+- "Untagged" filter to find uncategorized agents
+- Exclude entire categories from view
+- Active filter chips with one-click removal
+- "Clear All" to reset filters
+- Result count: "Showing X of Y agents"
 
-Manual tags show with a **dashed border** to distinguish them from auto-detected tags.
+#### Sorting & Grouping
+- Sort by name (A-Z, Z-A) or date (newest, oldest)
+- Group by division or owner
 
-### Add Pattern (Improve Auto-Detection)
-When you find an agent that should be auto-tagged but isn't:
-1. Click the **➕** button next to the agent
-2. Enter a keyword pattern (e.g., `[keyword]` or `phrase`)
-3. Select which filter to add it to
-4. Click **Add Pattern**
+#### UI Enhancements
+- Collapsible Favorites/All Agents sections
+- Tags displayed inline on each agent card
+- Data source badges on agents
+- Filter bar pinned to top of page
 
-Now all agents with that pattern will be auto-tagged!
+#### Customization (Settings)
+- Add/edit/delete tag categories
+- Customize colors and icons (30 emoji options)
+- Edit auto-detection patterns
+- Drag to reorder categories
+- Search through categories
+- Customize data sources
+- Reset to defaults
 
-### Full Customization
-Click **⚙️ Settings** to:
-- Add/edit/delete filters
-- Change colors and icons
-- Edit keyword patterns
-- Drag to reorder filters
-- Search through your filters
+#### Team Sharing
+- Export config as share code (copy to clipboard)
+- Import from share code
+- Export/import as JSON file
+- Shares: categories, patterns, data sources, and manual tags
 
-Data Sources are also fully customizable in the **Data Sources** tab.
-
-### Team Sharing
-Click **🔗 Share** to:
-- **Export a share code** - Copy/paste to teammates via Slack/email
-- **Import from code** - Paste a teammate's code to sync settings
-- **Export/Import files** - For backup or larger configurations
-
-This shares: all filters, data sources, patterns, AND manual agent tags.
-
----
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `Esc` | Close any open modal |
-| `Ctrl/Cmd + Click` | Multi-select filters |
+#### Technical
+- SPA navigation cleanup (hides UI when leaving agents page)
+- Debounced MutationObserver
+- Caches DOM references
+- Graceful degradation on errors
 
 ---
 
-## Default Filters
+## 2. Chat Export (v2.6.0)
 
-| Filter | Icon | Keywords |
-|--------|------|----------|
-| ANA | 📈 | `[ana]`, `analytics`, `ga4`, `event drop`, `anomalie` |
-| PDM | 💸 | `[pdm]`, `paid`, `ppc`, `google ads`, `meta ads`, `campaign` |
-| SEO | 🔍 | `[seo]`, `keyword`, `organic`, `serp`, `content`, `backlink` |
-| CE | 🤝 | `[ce]`, `client`, `call prep`, `qbr`, `engagement` |
-| OPS | 🛠️ | `[ops]`, `taxonomy`, `operation`, `process`, `admin` |
-| WIP | 🚧 | `[wip]`, `testing`, `test version` |
-| DNU | ⛔ | `[dnu]`, `do not use`, `sandbox` |
-| PROD | ✅ | `[prod]` |
-| CLIENT | 👤 | `[client]`, `[acme]`, `[example]`, etc. |
-| UTILITY | 🔧 | `[utility]`, `assistant`, `helper`, `api`, `connector` |
+**File:** `ninjacat-chat-export.user.js`  
+**Works on:** `https://app.ninjacat.io/agency/data/agents/*/chat/*`
 
-All filters are fully customizable in Settings!
+### Complete Feature List
 
----
+#### Export Formats
+- **Print PDF** - Clean output optimized for printing/PDF export
+- **Markdown** - Formatted markdown with code blocks preserved
+- **Copy Text** - Plain text without formatting
 
-## Default Data Sources
+#### Export Controls
+- Floating blue export button (📄) in top-right corner
+- Dropdown menu with all export options
+- Expand All - Expand all collapsed task details
+- Collapse All - Collapse all task details
 
-| Source | Icon | Detection Keywords |
-|--------|------|-------------------|
-| Google Analytics | 📊 | `google analytics`, `ga4`, `analytics` |
-| Google Search Console | 🔎 | `search console`, `gsc` |
-| Google Sheets | 📄 | `google sheets`, `sheet`, `spreadsheet` |
-| Meta Ads | 📘 | `meta ads`, `facebook ads` |
-| Google Ads | 💰 | `google ads`, `adwords` |
+#### PDF Optimization
+- Hides sidebars, navigation, and input area
+- Expands chat to full width
+- Adds print header with agent name and date
+- User/Agent labels for clarity
+- Links shown in blue
+- Page break handling for long conversations
 
----
+#### Keyboard Shortcuts
+- `Ctrl+Shift+M` - Export as Markdown
+- `Ctrl+Shift+C` - Copy as plain text
 
-## Syncing with Your Team
-
-### Option 1: Share Code (Easiest)
-
-**To share your config:**
-1. Click **🔗 Share**
-2. Click **📋 Copy to Clipboard**
-3. Send the code to your team via Slack/email
-
-**To import a teammate's config:**
-1. Click **🔗 Share**
-2. Paste the code in the "Import from code" box
-3. Click **📥 Import from Code**
-4. Confirm the import
-
-### Option 2: Share File
-
-**To export:**
-1. Click **🔗 Share**
-2. Click **💾 Export as File**
-3. Share the downloaded `.json` file
-
-**To import:**
-1. Click **🔗 Share**
-2. Click **📂 Import from File**
-3. Select the `.json` file
+#### Technical
+- Injected print styles
+- Clean markdown conversion
+- SPA navigation aware
 
 ---
 
-## Troubleshooting
+## 3. Chat UX Enhancements (v1.7.0)
 
-### Script doesn't load
-1. Make sure Tampermonkey is enabled (click the icon, check toggle)
-2. Verify the script is enabled in Tampermonkey dashboard
-3. Hard refresh the page: `Ctrl+Shift+R`
+**File:** `ninjacat-chat-ux.user.js`  
+**Works on:** `https://app.ninjacat.io/*/chat/*` and `https://app.ninjacat.io/*/agents/*`
 
-### Filter bar doesn't appear
-1. Wait 2-3 seconds after page load (the script waits for the page to fully render)
-2. Check the console (`F12` → Console) for errors
-3. Look for: `[NinjaCat Seer Tags] Script loaded v1.5.0`
+### Complete Feature List
 
-### Agents aren't getting tagged
-1. Check if the agent name contains any of the keyword patterns
-2. Use the **➕** button to add a new pattern
-3. Or use **🏷️** to manually tag the agent
+#### File Handling
+- Multi-file drag & drop anywhere on page
+- Visual drop zone overlay with instructions
+- Smart targeting (chat input vs. Knowledge tab)
+- Supported: `.csv`, `.png`, `.jpg`, `.jpeg`, `.pdf`, `.txt`, `.md`, `.json`
+- File type validation with error toast
+- Success/error toast notifications
 
-### Need to reset everything
-1. Click **⚙️ Settings**
-2. Click **↺ Reset All**
-3. Confirm - this clears all custom settings and manual tags
+#### Message Queue
+- Queue up to 3 messages while agent processes
+- Visual queue display below input
+- Edit queued messages
+- Remove individual messages from queue
+- Clear entire queue
+- Pause/resume queue
+- Auto-sends next message when agent finishes
 
-### Still having issues?
-1. Open Console (`F12`)
-2. Look for any red errors
-3. Check that version shows `v1.5.0`
+#### Input Management
+- Always-unlocked textarea (removes disabled state)
+- Enter key interception for queueing
+- Unlocks parent containers too
+- Resets processing state on error/cancel
 
----
+#### URL Handling
+- Auto-linkify URLs in chat messages
+- URL validation (only http/https)
+- Debounced to prevent performance issues
 
-## Updating the Script
+#### Error Recovery
+- Detects error state (ERROR conversation state, Resend button visible)
+- Yellow warning banner when in error state
+- **Injects "Edit last message" button** on cancelled runs (NinjaCat omits this)
+- Nuclear state reset function clears all blocking state
+- Clears stale streamingMessages, pendingMessages, isStreaming flags
 
-Tampermonkey checks for updates automatically. To force an update:
+#### Performance
+- Throttled MutationObserver (200ms batches)
+- Narrowed observer scope (#assistants-ui instead of body)
+- Cached DOM references (2s TTL)
+- Reduced attribute watching (no 'class' filter)
+- Cache invalidation on SPA navigation
 
-1. Delete the current script from Tampermonkey
-2. Reinstall from the [install link](https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js)
-
-Or add `?v=timestamp` to bypass GitHub's cache:
-```
-https://raw.githubusercontent.com/jms830/ninjacat-tweaks/main/userscripts/ninjacat-seer-tags.user.js?v=20241126
+#### Debug API (Console)
+```js
+window._ncCheckProcessing()  // Is agent processing?
+window._ncIsErrorState()     // Is conversation in error?
+window._ncNuclearReset()     // Clear all blocking state
+window._ncClearState()       // Alias for nuclear reset
+window._ncDumpState()        // Dump Pinia store state
+window._ncStores()           // Get Pinia store refs
+window._ncSocket()           // Get WebSocket connection
+window._ncGetContext()       // Get conversation context
+window._ncClickResend()      // Click native Resend button
+window._ncClickEdit()        // Click native Edit button
+window._ncManualQueue()      // Queue current input
+window._ncForceSend()        // Force send current input
+window._ncClearQueue()       // Clear message queue
+window._ncResumeQueue()      // Resume paused queue
 ```
 
----
-
-## Data Storage
-
-All data is stored locally in your browser's localStorage:
-
-| Key | Contents |
-|-----|----------|
-| `ninjacat-seer-tags-config` | Filter definitions and patterns |
-| `ninjacat-seer-data-sources` | Data source definitions |
-| `ninjacat-seer-agent-tags` | Manual agent tag assignments |
-| `ninjacat-seer-filter-state` | Currently active filters |
-
-To clear all data: Settings → Reset All
+#### Technical
+- IIFE wrapper with strict mode
+- Pinia store access for state management
+- WebSocket instrumentation for debugging
+- SPA navigation detection and re-initialization
 
 ---
 
-## Version History
+## Installation
 
-| Version | Date | Changes |
-|---------|------|---------|
-| v1.5.0 | 2024-11 | Team sharing, untagged filter, drag-drop, filter count, keyboard shortcuts, customizable data sources, add pattern button |
-| v1.4.0 | 2024-11 | Full CRUD for filters, manual tagging, import/export |
-| v1.3.0 | 2024-11 | Data source filters, multi-select UX |
-| v1.2.0 | 2024-11 | Settings modal, pattern editing |
-| v1.0.0 | 2024-11 | Initial release |
+1. Install [Tampermonkey](https://www.tampermonkey.net/)
+2. Click the Install links above
+3. Tampermonkey prompts you to install - click **Install**
 
-See [FIXES.md](FIXES.md) for detailed changelog.
+## Updating
+
+Tampermonkey auto-updates. To force update:
+1. Tampermonkey dashboard > Utilities > Check for updates
+
+Or reinstall with cache buster:
+```
+https://raw.githubusercontent.com/.../script.user.js?nocache=123
+```
+
+## Debug Mode (Chat UX)
+
+```js
+localStorage.setItem('ninjacat-chat-debug', 'true');
+location.reload();
+```
 
 ---
 
-## Contributing
+## Files
 
-Found a bug? Have a feature idea?
-- Open an issue on [GitHub](https://github.com/jms830/ninjacat-tweaks/issues)
-- Or submit a pull request!
+| File | Purpose |
+|------|---------|
+| `*.user.js` | Main script (IIFE, Tampermonkey metadata) |
+| `*.meta.js` | Metadata-only for update checks (version must match) |
+| `FIXES.md` | Changelog |
+| `TROUBLESHOOTING.md` | Help guide |
 
 ---
 
-## License
+## Code Conventions
 
-MIT License - feel free to use and modify!
+- Vanilla JavaScript ES6+ (no npm, no build)
+- IIFE wrapper: `(function() { 'use strict'; ... })();`
+- Section headers: `// ---- Section Name ----`
+- Debug logging: `debugLog()` with localStorage toggle
+- Selectors: Centralized in `SELECTORS` object
+- Error handling: Try-catch around Pinia/Vue access
+- Version in 3 places: `@version`, `console.log`, and `.meta.js`
+
+---
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues.
