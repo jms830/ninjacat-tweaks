@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NinjaCat Chat UX Enhancements
 // @namespace    http://tampermonkey.net/
-// @version      1.5.0
+// @version      1.5.1
 // @description  Multi-file drag-drop, message queue, auto-linkify URLs, and partial response preservation for NinjaCat chat
 // @author       NinjaCat Tweaks
 // @match        https://app.ninjacat.io/*
@@ -22,7 +22,7 @@
         return;
     }
 
-    console.log('[NinjaCat Chat UX] Script loaded v1.5.0');
+    console.log('[NinjaCat Chat UX] Script loaded v1.5.1');
 
     // ---- Configuration ----
     const CONFIG = {
@@ -483,169 +483,62 @@
         debugLog('No error recovery method succeeded');
         return false;
     }
-    // ---- Failed Response Preservation (Native Feel) ----
-    // When user clicks Resend, we capture the partial response and re-inject it
-    // as a native-looking message element so it stays in the conversation flow.
+    // ---- Error State Warning Banner ----
+    // Simple yellow warning when in error state to inform user
     
-    let pendingPreservedContent = null; // Temporarily holds content during resend
-    let resendInterceptorSetup = false;
+    let errorWarningVisible = false;
     
     /**
-     * Get the last agent message element and content from the DOM
+     * Show warning banner when in error state
      */
-    function getLastAgentMessage() {
-        const container = document.querySelector('.conversationMessagesContainer');
-        if (!container) {
-            debugLog('Messages container not found');
-            return null;
-        }
+    function showErrorStateWarning() {
+        if (document.getElementById('nc-error-state-warning')) return;
         
-        // Find message elements with index attribute (NinjaCat's message structure)
-        const messages = container.querySelectorAll('[index]');
+        const inputWrapper = document.querySelector('.min-w-\\[200px\\].max-w-\\[840px\\]') ||
+                            document.querySelector('[class*="input"]')?.closest('div[class*="w-"]');
         
-        // Walk backwards to find the last agent message
-        for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i];
-            
-            // Skip user messages (they have self-end class)
-            if (msg.classList.contains('self-end') || msg.closest('.self-end')) {
-                continue;
-            }
-            
-            // Look for styled-chat-message which contains agent responses
-            const styledMessage = msg.querySelector('.styled-chat-message');
-            if (styledMessage) {
-                const text = styledMessage.textContent?.trim();
-                const html = styledMessage.innerHTML;
-                if (text && text.length > 0) {
-                    return {
-                        text: text,
-                        html: html,
-                        element: msg,
-                        styledElement: styledMessage
-                    };
-                }
-            }
-        }
+        if (!inputWrapper) return;
         
-        return null;
-    }
-    
-    /**
-     * Create a native-looking preserved message element
-     */
-    function createPreservedMessageElement(content, html) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'nc-preserved-message';
-        wrapper.dataset.ncPreserved = 'true';
-        
-        // Create structure that mimics NinjaCat's agent message
-        wrapper.innerHTML = `
-            <div class="nc-preserved-badge">
-                <span>Partial response (preserved)</span>
-                <button class="nc-preserved-dismiss" title="Dismiss">×</button>
-            </div>
-            <div class="nc-preserved-content styled-chat-message">${html || escapeHtml(content)}</div>
+        const warning = document.createElement('div');
+        warning.id = 'nc-error-state-warning';
+        warning.className = 'nc-error-state-warning';
+        warning.innerHTML = `
+            <span class="nc-error-state-warning-icon">⚠️</span>
+            <span class="nc-error-state-warning-text">
+                <strong>Error state detected</strong>
+                <small>Use "Resend" or "Edit last message" buttons above to continue</small>
+            </span>
         `;
         
-        // Add dismiss handler
-        wrapper.querySelector('.nc-preserved-dismiss').addEventListener('click', () => {
-            wrapper.remove();
-            debugLog('Preserved message dismissed');
-        });
-        
-        return wrapper;
+        inputWrapper.parentNode.insertBefore(warning, inputWrapper);
+        errorWarningVisible = true;
+        debugLog('Error state warning shown');
     }
     
     /**
-     * Inject preserved message into the conversation
+     * Hide the error state warning
      */
-    function injectPreservedMessage(content, html) {
-        if (!content) {
-            debugLog('No content to preserve');
-            return;
+    function hideErrorStateWarning() {
+        const warning = document.getElementById('nc-error-state-warning');
+        if (warning) {
+            warning.remove();
+            errorWarningVisible = false;
+            debugLog('Error state warning hidden');
         }
-        
-        const container = document.querySelector('.conversationMessagesContainer');
-        if (!container) {
-            debugLog('Cannot find messages container for injection');
-            return;
-        }
-        
-        // Find where to inject - after the last user message or at the end
-        const messages = container.querySelectorAll('[index]');
-        let insertPoint = null;
-        
-        // Find the last user message to insert after it
-        for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i];
-            if (msg.classList.contains('self-end') || msg.closest('.self-end')) {
-                insertPoint = msg;
-                break;
-            }
-        }
-        
-        const preservedEl = createPreservedMessageElement(content, html);
-        
-        if (insertPoint && insertPoint.nextSibling) {
-            insertPoint.parentNode.insertBefore(preservedEl, insertPoint.nextSibling);
-        } else {
-            // Append to container
-            container.appendChild(preservedEl);
-        }
-        
-        debugLog('Injected preserved message');
     }
     
     /**
-     * Intercept Resend button clicks to preserve partial responses
+     * Update error state UI - call this when state might have changed
      */
-    function setupResendInterceptor() {
-        if (resendInterceptorSetup) return;
+    function updateErrorStateUI() {
+        const inErrorState = isConversationInErrorState();
         
-        // Use event delegation on document for Resend button clicks
-        document.addEventListener('click', (e) => {
-            const button = e.target.closest('button');
-            if (!button) return;
-            
-            const buttonText = button.textContent?.toLowerCase().trim();
-            
-            // Check if this is a Resend or Edit button
-            if (buttonText === 'resend' || buttonText === 'resend last message') {
-                debugLog('Resend button clicked - capturing partial response');
-                
-                // Capture the current partial response BEFORE native handler runs
-                const lastMessage = getLastAgentMessage();
-                if (lastMessage?.text) {
-                    pendingPreservedContent = {
-                        text: lastMessage.text,
-                        html: lastMessage.html
-                    };
-                    debugLog('Captured partial response:', lastMessage.text.substring(0, 100));
-                    
-                    // Wait for native resend to clear the message, then re-inject
-                    setTimeout(() => {
-                        if (pendingPreservedContent) {
-                            injectPreservedMessage(
-                                pendingPreservedContent.text,
-                                pendingPreservedContent.html
-                            );
-                            pendingPreservedContent = null;
-                        }
-                    }, 500); // Wait for NinjaCat to process the resend
-                }
-            }
-        }, true); // Use capture phase to run before native handlers
-        
-        resendInterceptorSetup = true;
-        debugLog('Resend interceptor setup complete');
+        if (inErrorState && !errorWarningVisible) {
+            showErrorStateWarning();
+        } else if (!inErrorState && errorWarningVisible) {
+            hideErrorStateWarning();
+        }
     }
-    
-    // ---- Debug API ----
-    /** @function _ncGetLastMessage - Get the last agent message from DOM */
-    window._ncGetLastMessage = getLastAgentMessage;
-    /** @function _ncInjectPreserved - Manually inject a preserved message */
-    window._ncInjectPreserved = (text) => injectPreservedMessage(text);
 
     // ---- DOM Selectors ----
     const SELECTORS = {
@@ -1016,53 +909,36 @@
                 background: #059669;
             }
             
-            /* Preserved Message (native-feeling partial response) */
-            .nc-preserved-message {
-                margin: 8px 0;
-                padding: 0;
-                opacity: 0.85;
-                border-left: 3px solid #9CA3AF;
-                background: linear-gradient(to right, #F9FAFB, transparent);
-            }
-            
-            .nc-preserved-badge {
+            /* Error State Warning Banner */
+            .nc-error-state-warning {
+                margin: 8px 20px;
+                padding: 10px 14px;
+                background: #FEF3C7;
+                border: 1px solid #F59E0B;
+                border-radius: 8px;
                 display: flex;
                 align-items: center;
-                justify-content: space-between;
-                padding: 6px 12px;
-                font-size: 11px;
-                color: #6B7280;
-                background: #F3F4F6;
-                border-bottom: 1px solid #E5E7EB;
+                gap: 10px;
+                font-size: 13px;
+                color: #92400E;
             }
             
-            .nc-preserved-badge span {
-                font-weight: 500;
-            }
-            
-            .nc-preserved-dismiss {
-                background: none;
-                border: none;
-                color: #9CA3AF;
-                cursor: pointer;
+            .nc-error-state-warning-icon {
                 font-size: 16px;
-                line-height: 1;
-                padding: 2px 6px;
-                border-radius: 4px;
-                transition: all 0.15s ease;
+                flex-shrink: 0;
             }
             
-            .nc-preserved-dismiss:hover {
-                background: #E5E7EB;
-                color: #374151;
+            .nc-error-state-warning-text {
+                flex: 1;
             }
             
-            .nc-preserved-content {
-                padding: 12px;
+            .nc-error-state-warning-text strong {
+                display: block;
+                margin-bottom: 2px;
             }
             
-            .nc-preserved-content.styled-chat-message {
-                /* Inherit NinjaCat's styled-chat-message styles */
+            .nc-error-state-warning-text small {
+                color: #B45309;
             }
         `;
         document.head.appendChild(styles);
@@ -1857,6 +1733,9 @@
             
             // Auto-linkify URLs in new messages (debounced to prevent performance issues)
             linkifyUrlsDebounced();
+            
+            // Check for error state and show/hide warning
+            updateErrorStateUI();
         });
 
         observer.observe(document.body, {
@@ -1878,7 +1757,6 @@
         setupDragListeners();
         setupInputInterception();
         setupObserver();
-        setupResendInterceptor();
         getLiveSocket();
 
         // Initial state check
